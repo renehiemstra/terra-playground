@@ -115,7 +115,7 @@ terra A:__fhandle(blk : &block, size : size_t, counter : size_t)
         if requested_bytes == 0 then
             --free memory
             self:__deallocate(blk)
-        elseif requested_bytes > blk:bytes() then
+        elseif requested_bytes > blk:size_in_bytes() then
             --reallocate memory
             self:__reallocate(blk, size, counter)
         end

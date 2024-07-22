@@ -71,17 +71,17 @@ local SmartBlock = terralib.memoize(function(T)
         end
     end)
 
-    block.methods.bytes = terra(self : &block) : size_t
+    block.methods.size_in_bytes = terra(self : &block) : size_t
         if not self:isempty() then
             return ([&u8](self.alloc) - [&u8](self.ptr))
         end
         return 0
 	end
-    block.methods.bytes:setinlined(true)
+    block.methods.size_in_bytes:setinlined(true)
 
 	block.methods.size = terra(self : &block) : size_t
-        err.assert(self:bytes() % self:elsize() == 0) 
-        return self:bytes() / self:elsize()
+        err.assert(self:size_in_bytes() % self:elsize() == 0) 
+        return self:size_in_bytes() / self:elsize()
 	end
 	block.methods.size:setinlined(true)
 
@@ -94,8 +94,8 @@ local SmartBlock = terralib.memoize(function(T)
         --using 'self.alloc.fhandle' function pointer to 
         --deallocate 'self'
         if not self:isempty() then
-            var free = [{&opaque, &block, size_t}->{}](self.alloc.fhandle)
-            free(self.alloc.handle, self, 0)
+            var free = [{&opaque, &block, size_t, size_t}->{}](self.alloc.fhandle)
+            free(self.alloc.handle, self, 0, 0)
         end
     end
 
@@ -132,7 +132,7 @@ local SmartBlock = terralib.memoize(function(T)
                     var blk = exp
                     --debug check if sizes are compatible, that is, is the
                     --remainder zero after integer division
-                    err.assert(blk:bytes() % Size2  == 0)
+                    err.assert(blk:size_in_bytes() % Size2  == 0)
                 in
                     B {[&T2](blk.ptr), blk.alloc}
                 end
@@ -140,7 +140,7 @@ local SmartBlock = terralib.memoize(function(T)
                 --passing by reference
                 return quote
                     var blk = exp
-                    err.assert(blk:bytes() % Size2  == 0)
+                    err.assert(blk:size_in_bytes() % Size2  == 0)
                 in
                     [&B](blk)
                 end
@@ -214,7 +214,7 @@ local function AllocatorBase(A, Imp)
             if requested_bytes == 0 then
                 --free memory
                 self:deallocate(blk)
-            elseif requested_bytes > blk:bytes() then
+            elseif requested_bytes > blk:size_in_bytes() then
                 --reallocate memory
                 self:reallocate(blk, size, counter)
             end
@@ -227,8 +227,8 @@ local function AllocatorBase(A, Imp)
     end
 
     terra A:reallocate(blk : &block, size : size_t, newcounter : size_t)
-        err.assert(self:owns(blk) and (blk:bytes() % size == 0))
-        if not blk:isempty() and (blk:bytes() < size * newcounter)  then
+        err.assert(self:owns(blk) and (blk:size_in_bytes() % size == 0))
+        if not blk:isempty() and (blk:size_in_bytes() < size * newcounter)  then
             Imp.__reallocate(blk, size, newcounter)
         end
     end
@@ -237,12 +237,12 @@ local function AllocatorBase(A, Imp)
     local allocators_best_friend = constant(A.methods.__allocators_best_friend:getpointer())
 
     terra A:allocate(size : size_t, count : size_t)    
-        --allocate memory for the data ('size * count' bytes) and storage
-        --of two pointers (2*8 bytes), the allocator handle and its function pointer
+        --allocate memory for the data ('size * count' size_in_bytes) and storage
+        --of two pointers (2*8 size_in_bytes), the allocator handle and its function pointer
         var blk = Imp.__allocate(size, count)
         --create handle to allocater 'self' and its allocation function pointer
         --these form a sentinal to the memory data, which means they are placed
-        --right after the 'size * count' bytes of data, to define memory block 'size'
+        --right after the 'size * count' size_in_bytes of data, to define memory block 'size'
         if not blk:isempty() then
             blk.alloc.handle = [&opaque](self)
             blk.alloc.fhandle = [&opaque](allocators_best_friend)
@@ -263,7 +263,7 @@ local DefaultAllocator = function(options)
     local AbortOnError = options["Abort on error"] or true -- abort behavior
 
     --check input options
-    assert(Alignment >= 0 and Alignment % 8 == 0)   --alignment is a multiple of 8 bytes
+    assert(Alignment >= 0 and Alignment % 8 == 0)   --alignment is a multiple of 8 size_in_bytes
     assert(type(Initialize) == "boolean")
     assert(type(AbortOnError) == "boolean")
 
@@ -297,7 +297,7 @@ local DefaultAllocator = function(options)
                 return block{ptr, sen}
             end
         end
-    else --use user defined alignment (multiple of 8 bytes)
+    else --use user defined alignment (multiple of 8 size_in_bytes)
         if not Initialize then
             terra Imp.__allocate(size : size_t, counter : size_t)
                 var ptr = C.aligned_alloc(Alignment, round_to_aligned(size * counter + 16, Alignment))
@@ -321,9 +321,9 @@ local DefaultAllocator = function(options)
         --use natural alignment provided by malloc/calloc/realloc
         --reallocation is done using realloc
         terra Imp.__reallocate(blk : &block, size : size_t, newcounter : size_t)
-            err.assert(blk:bytes() % size == 0) --sanity check
+            err.assert(blk:size_in_bytes() % size == 0) --sanity check
             var newsize = size * newcounter
-            if not blk:isempty() and (blk:bytes() < newsize)  then
+            if not blk:isempty() and (blk:size_in_bytes() < newsize)  then
                 var handle = blk.alloc.handle
                 var fhandle = blk.alloc.fhandle
                 blk.ptr = C.realloc(blk.ptr, newsize + 16)
@@ -332,19 +332,19 @@ local DefaultAllocator = function(options)
             end
         end
     else 
-        --use user defined alignment (multiple of 8 bytes)
+        --use user defined alignment (multiple of 8 size_in_bytes)
         --we just use __allocate to get correcly aligned memory
         --and then memcpy
         terra Imp.__reallocate(blk : &block, size : size_t, newcounter : size_t)
-            err.assert(blk:bytes() % size == 0) --sanity check
+            err.assert(blk:size_in_bytes() % size == 0) --sanity check
             var newsize = size * newcounter
-            if not blk:isempty() and (blk:bytes() < newsize)  then
+            if not blk:isempty() and (blk:size_in_bytes() < newsize)  then
                 --get new resource using '__allocate'
                 var tmpblk = __allocate(size, newcounter)
                 __abortonerror(tmpblk.ptr, newsize)
-                --copy bytes over
+                --copy size_in_bytes over
                 if not tmpblk:isempty() then
-                    C.memcpy(tmpblk.ptr, blk.ptr, blk:bytes())
+                    C.memcpy(tmpblk.ptr, blk.ptr, blk:size_in_bytes())
                 end
                 --reset allocator handle and function handle
                 tmpblk.alloc = set_allochandle(tmpblk.ptr, blk.alloc.handle, blk.alloc.fhandle, newsize)
