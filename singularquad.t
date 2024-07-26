@@ -29,11 +29,7 @@ local Point = terralib.memoize(function(T, N)
     end)
 
     point.metamethods.__apply = macro(function(self, i)
-        return quote
-            err.assert(i >= 0 and i < N)
-        in
-            self.position[i]
-        end
+        return `self.position[i]
     end)
 
     return point
@@ -45,8 +41,9 @@ local Interval = terralib.memoize(function(T)
     --interval definition in center of gravity coordinates
     --chosen because it does not depend on orientation
     local struct interval{
-        center : T
-        reach : T
+        center : T  --exact center of the interval
+        reach : T   --left and right reach
+        origin : T  --an arbitrary origin
     }
 
     interval.staticmethods = {}
@@ -56,7 +53,7 @@ local Interval = terralib.memoize(function(T)
     end
 
     interval.staticmethods.new = macro(function(a, b)
-        return `interval{0.5*(a+b), 0.5*math.abs(b-a)}
+        return `interval{0.5*(a+b), 0.5*math.abs(b-a), 0.5*(a+b)}
     end)
 
     terra interval:isempty()
@@ -72,7 +69,8 @@ local Interval = terralib.memoize(function(T)
     end
 
     interval.metamethods.__apply = terra(self : interval, x : T) : T
-        return x * (self.center + self.reach) + (1.-x) * (self.center - self.reach)
+        var A = 2*self.reach * terralib.select(self.origin <= self.center, 1., -1.)
+        return A * x + self.origin
     end
 
     terra interval:vol()
@@ -133,6 +131,7 @@ local Hypercube = terralib.memoize(function(T, N)
         end
     end)
 
+    --check if direction 'i' is a singular direction
     terra hypercube:issingulardir(i : int)
         return self.I[i]:vol()==0
     end
@@ -147,6 +146,21 @@ local Hypercube = terralib.memoize(function(T, N)
             end
         end
         return d
+    end
+
+    --compute the length, area, volume, etc. 'vol' of a point
+    --is defined as '1'
+    terra hypercube:vol()
+        var v = 1.0
+        for i = 0, N do
+            if not self:issingulardir(i) then
+                v = v * self.I[i]:vol()
+            end
+        end
+        return v
+    end
+
+    hypercube.metamethods.__apply = terra(self : &hypercube)
     end
 
     --testing for equality of intervals
@@ -221,13 +235,17 @@ end)
 
 local Pyramid = terralib.memoize(function(T, N)
 
-    local interval = Interval(T)
+    local point = Point(T,N)
+    local hypercube = Hypercube(T, N)
+    --dimension 'D' of base should be larger than
+    --zero and smaller than embedding dimension N
+    --but D is a runtime parameter
 
     --T - floating point data-type
     --N - dimension of embedding
     local struct pyramid{
-        I : interval[N]
-        valid : bool
+        base : hypercube
+        apex : point
     }
 
     pyramid.staticmethods = {}
@@ -236,10 +254,26 @@ local Pyramid = terralib.memoize(function(T, N)
         return self.methods[methodname] or pyramid.staticmethods[methodname]
     end
 
-    pyramid.staticmethods.new = macro(function(...)
-        local args = terralib.newlist{...}
-        assert(#args == N)
-    end)
+    pyramid.staticmethods.new = terra(base : hypercube, apex : point)
+        var D = base:dim()
+        err.assert(D > 0 and D < N)
+        return pyramid{base, apex}
+    end
+
+    terra pyramid:dim()
+        return self.base.dim()+1
+    end
+
+    terra pyramid:height()
+        return 1.0
+    end
+
+    terra pyramid:vol()
+        return self:height() * self.base:vol() / self:dim()
+    end
+
+    pyramid.metamethods.__apply = terra(self : &pyramid)
+    end
 
 end)
 
@@ -254,11 +288,10 @@ testenv "point" do
     testset "new, apply" do
         terracode
             var p = point.new(1, 3, 4)
-            --p(2) = 5.0
         end
         test p(0)==1
         test p(1)==3
-        test p(2)==5
+        test p(2)==4
     end
 
 end
@@ -328,7 +361,7 @@ testenv "hypercube" do
     local interval = Interval(double)
     local hypercube = Hypercube(double, 2)
     
-    testset "new" do
+    testset "new, dim, vol" do
         terracode
             var A = hypercube.new(interval.new(0, 2), interval.new(0, 2))
             var B = hypercube.new(interval.new(0, 2), interval.new(0, 0))
@@ -338,6 +371,7 @@ testenv "hypercube" do
         test A:dim()==2 and A:issingulardir(0)==false and A:issingulardir(1)==false
         test B:dim()==1 and B:issingulardir(0)==false and B:issingulardir(1)==true
         test C:dim()==0 and C:issingulardir(0)==true  and C:issingulardir(1)==true
+        test A:vol()==4 and B:vol()==2 and C:vol()==1
     end
 
     testset "empty intersection" do
@@ -404,6 +438,11 @@ local interval = Interval(double)
 local hypercube = Hypercube(double, 2)
 
 terra main()
+    
+    var I = interval.new(1, 3)
+    I.origin = 2.8
+    io.printf("value %0.2f\n", I(0.9))
+
     var A = hypercube.new(interval.new(0, 2), interval.new(0, 0))
     var B = hypercube.new(interval.new(0, 0), interval.new(0, 2))
     var C = A * B
