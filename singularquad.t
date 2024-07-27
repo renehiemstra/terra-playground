@@ -212,14 +212,31 @@ local Hypercube = terralib.memoize(function(T, N)
 
     hypercube.metamethods.__apply = macro(function(self, ...)
         local args = terralib.newlist{...}
+        local D = #args
         local eval = terralib.newlist()
+        local I = symbol(interval)
         local p = symbol(point)
-        for i = 0, N-1 do
+        local k = symbol(int)
+        for i = 0, D-1 do
             local x = args[i+1]
-            eval:insert(quote p.position[i] = self.I[i]([x]) end)
+            eval:insert(quote
+                [k] = self.perm[i]
+                [I] = self.I[k]
+                [p].position[k] = I([x])
+            end)
+        end
+        for i = D, N-1 do
+            eval:insert(quote
+                [k] = self.perm[i]
+                [I] = self.I[k]
+                [p].position[k] = I.center
+            end)
         end
         return quote
+            var [ k ] = 0
+            var [ I ] = interval{}
             var [ p ] = point{}
+            err.assert(D == self:dim())
             [eval]
         in
             p
@@ -504,10 +521,8 @@ testenv "hypercube - 2" do
             var A = hypercube.new(interval.new(1, 3), interval.new(1, 1))
             A:setorigin(point.new(3,1))
         end
-        test A(0,0) == point.new(3,1)
-        test A(0,1) == point.new(3,1) --singular in second coordinate
-        test A(1,0) == point.new(1,1)
-        test A(1,1) == point.new(1,1) --singular in second coordinate
+        test A(0) == point.new(3,1)
+        test A(1) == point.new(1,1)
     end
 
     testset "empty intersection" do
@@ -627,9 +642,8 @@ testenv "hypercube - 3" do
             var A = hypercube.new(interval.new(0, 2), interval.new(1, 1), interval.new(2, 4))
             A:setorigin(point.new(0,1,2))
         end
-        test A(0,0,0) == point.new(0,1,2)
-        test A(1,0,1) == point.new(2,1,4)
-        test A(1,1,1) == point.new(2,1,4) --singular in second coordinate
+        test A(0,0) == point.new(0,1,2)
+        test A(1,0) == point.new(2,1,2)
     end
 
     testset "segment evaluation - custom origin" do
@@ -637,10 +651,8 @@ testenv "hypercube - 3" do
             var A = hypercube.new(interval.new(2, 2), interval.new(1, 1), interval.new(1, 3))
             A:setorigin(point.new(2,1,3))
         end
-        test A(0,0,0) == point.new(2,1,3)
-        test A(1,1,0) == point.new(2,1,3) --singular in first and second coordinate
-        test A(0,0,1) == point.new(2,1,1)
-        test A(1,1,1) == point.new(2,1,1) --singular in first and second coordinate
+        test A(0) == point.new(2,1,3)
+        test A(1) == point.new(2,1,1)
     end
 
     testset "empty intersection" do
@@ -721,6 +733,6 @@ terra main()
     
     var A = hypercube.new(interval.new(0, 2), interval.new(0, 0))
     A:setorigin(point.new(2,0))
-    io.printf("evaluate A(x, y) = (%0.2f, %0.2f)\n", A(0,0))
+    io.printf("evaluate A(x, y) = (%0.2f, %0.2f)\n", A(0))
 end
 main()
