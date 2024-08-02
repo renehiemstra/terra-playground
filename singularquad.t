@@ -1,48 +1,22 @@
 local io = terralib.includec("stdio.h")
+local fun = require("fun")
 
-local math = require("mathfuns")
+local tmath = require("mathfuns")
+local svector = require("svector")
 local err = require("assert")
 
 local size_t = uint64
 
-local Point = terralib.memoize(function(T, N)
-
-    local struct point{
-        position : T[N]
-    }
-
-    point.staticmethods = {}
-
-    point.metamethods.__getmethod = function(self, methodname)
-        return self.methods[methodname] or point.staticmethods[methodname]
+--return a terra tuple type of length N: {T, T, ..., T}
+local ntuple = function(T, N)
+    local t = terralib.newlist()
+    for i = 1, N do
+        t:insert(T)
     end
+    return tuple(unpack(t))
+end
 
-    point.staticmethods.new = macro(function(...)
-        local args = terralib.newlist{...}
-        assert(#args == N)
-        return `point{arrayof(T,[args])}
-    end)
-
-    point.metamethods.__apply = macro(function(self, i)
-        return `self.position[i]
-    end)
-
-    point.metamethods.__eq = terra(self : point, other : point) : bool
-        for i = 0, N do
-            if self.position[i] ~= other.position[i] then
-                return false
-            end
-        end
-        return true
-    end
-
-    point.metamethods.__ne = terra(self : point, other : point) : bool
-        return not (self==other)
-    end
-
-    return point
-end)
-
+local Point = svector.StaticVector
 
 local Interval = terralib.memoize(function(T)
 
@@ -61,11 +35,15 @@ local Interval = terralib.memoize(function(T)
     end
 
     interval.staticmethods.new = macro(function(a, b)
-        return `interval{0.5*(a+b), 0.5*math.abs(b-a), 0.5*(a+b)}
+        return `interval{0.5*(a+b), 0.5*tmath.abs(b-a), a}
     end)
 
     terra interval:setorigin(o : T)
         self.origin = o
+    end
+
+    terra interval:getorigin()
+        return self.origin
     end
 
     terra interval:isempty()
@@ -98,11 +76,11 @@ local Interval = terralib.memoize(function(T)
         if self == other then
             return self
         else
-            var distance = math.abs(self.center - other.center)
+            var distance = tmath.abs(self.center - other.center)
             if self.reach + other.reach >= distance then --there is an intersection
-                var a = math.max(self.center-self.reach, other.center-other.reach)
-                var b = math.min(self.center+self.reach, other.center+other.reach)
-                return interval{0.5*(a+b), 0.5*(b-a)}
+                var a = tmath.max(self.center-self.reach, other.center-other.reach)
+                var b = tmath.min(self.center+self.reach, other.center+other.reach)
+                return interval.new(a, b)
             end
         end
         return interval{0,-1} --defined as the empty interval
@@ -126,14 +104,20 @@ local Hypercube = terralib.memoize(function(T, N)
 
     terra hypercube:setperm()
         var alpha, beta = 0, N-1
+        --get permutation
+        var I : uint8[N]
         for i = 0, N do
             if self.I[i]:vol()==0 then
-                self.perm[i] = beta
+                I[i] = beta
                 beta = beta - 1
             else
-                self.perm[i] = alpha
+                I[i] = alpha
                 alpha = alpha + 1
             end
+        end
+        --get inverse permutation
+        for i = 0, N do
+            self.perm[I[i]] = i
         end
     end
 
@@ -147,36 +131,54 @@ local Hypercube = terralib.memoize(function(T, N)
         return self.methods[methodname] or hypercube.staticmethods[methodname]
     end
 
-    hypercube.staticmethods.new = macro(function(...)
+    local ctor = terra(I : interval[N])
+        for i = 0, N do
+            err.assert(not I[i]:isempty(), "Not a valid interval.")
+        end
+        var cube = hypercube{I, true}
+        cube:setperm()
+        return cube
+    end
+
+    hypercube.staticmethods.new = macro(terralib.memoize(function(...)
         local args = terralib.newlist{...}
+        --if argument is an 'interval[N]' then return ctor
+        if #args==1 then
+            local v = args[1]
+            local t = v.tree.type
+            if t:isarray() then
+                assert(t.N == N and t.type==interval)
+                return `ctor([v])
+            end
+        end
+        --else try to create 'interval[N]' and return 'ctor'
         assert(#args == N)
         return quote
-            var A = hypercube{array([args]), true}
-            for i = 0, N do
-                if A.I[i]:isempty() then
-                    A.valid = false
-                    break
-                end
-            end
-            if not A:isempty() then
-                A:setperm()
-            end
+            var I = arrayof(interval, [args])
         in
-            A
+            ctor(I)
         end
-    end)
+    end))
 
     --check if direction 'i' is a singular direction
     terra hypercube:setorigin(o : point)
         for i = 0, N do
-            self.I[i]:setorigin(o.position[i])
+            self.I[i]:setorigin(o(i))
         end
+    end
+
+    terra hypercube:getorigin()
+        var o : point
+        for i = 0, N do
+            o(i) = self.I[i]:getorigin()
+        end
+        return o
     end
 
     terra hypercube:getcenter()
         var c : point
         for i = 0, N do
-            c.position[i] = self.I[i].center
+            c(i) = self.I[i].center
         end
         return c
     end
@@ -210,38 +212,81 @@ local Hypercube = terralib.memoize(function(T, N)
         return v
     end
 
-    hypercube.metamethods.__apply = macro(function(self, ...)
+    terra hypercube:barycentriccoord(p : point)
+        var x : ntuple(T, N)
+        var ptr = [&T](&x)
+        var I : interval
+        var k : uint8
+        var D = self:dim()
+        for i = 0, D do
+            k = self.perm[i]
+            I = self.I[k]
+            ptr[i] = I:barycentriccoord(p(k))
+        end
+        for i = D, N do
+            ptr[i] = 0
+        end
+        return x
+    end
+
+    local terra eval(self : &hypercube, x : &T)
+        var d = self:dim()
+        var p : point
+        for i = 0, d do
+            var k = self.perm[i]
+            p(k) = self.I[k](x[i])
+        end
+        for i = d, N do
+            var k = self.perm[i]
+            p(k) = self.I[k].center
+        end
+        return p
+    end
+
+    hypercube.metamethods.__apply = macro(terralib.memoize(function(self, ...)
         local args = terralib.newlist{...}
         local D = #args
-        local eval = terralib.newlist()
-        local I = symbol(interval)
-        local p = symbol(point)
-        local k = symbol(int)
-        for i = 0, D-1 do
-            local x = args[i+1]
-            eval:insert(quote
-                [k] = self.perm[i]
-                [I] = self.I[k]
-                [p].position[k] = I([x])
-            end)
+        --try a 'point' or a 'tuple'
+        if D==1 then
+            local p = args[1]
+            local typ = p.tree.type
+            --try 'point'
+            if typ==point then
+                return `eval(&self, [&T](&[ p ]))
+            else 
+                --try n-tuple
+                if typ.convertible == "tuple" then
+                    local n = #typ.entries
+                    local x = symbol(T[n])
+                    local fill_array = terralib.newlist{}
+                    for k = 0, n-1 do
+                        fill_array:insert(quote [x][k] = p.["_"..tostring(k)] end)
+                    end
+                    return quote
+                        err.assert(self:dim() == [n])
+                        var [ x ]
+                        [fill_array]
+                    in
+                        eval(&self, [&T](&x))
+                    end
+                end
+            end
         end
-        for i = D, N-1 do
-            eval:insert(quote
-                [k] = self.perm[i]
-                [I] = self.I[k]
-                [p].position[k] = I.center
-            end)
+        --try list of arguments
+        local x = symbol(T[D])
+        local fill_array = terralib.newlist{}
+        for k,v in ipairs(args) do
+            assert(v.tree.type:isprimitive() or "Not a primitive type")
+            fill_array:insert(quote [x][k-1] = [ v ] end)
         end
         return quote
-            var [ k ] = 0
-            var [ I ] = interval{}
-            var [ p ] = point{}
-            err.assert(D == self:dim())
-            [eval]
+            var [ x ]
+            err.assert(self:dim()==D)
+            [ fill_array ]
         in
-            p
+            eval(&self, [&T](&x))
         end
-    end)
+    end))
 
     --testing for equality of intervals
     hypercube.metamethods.__eq = terra(self : hypercube, other : hypercube) : bool
@@ -266,48 +311,47 @@ local Hypercube = terralib.memoize(function(T, N)
             end
             J[k] = Z
         end
-        return hypercube{J, true}
+        return hypercube.new(J)
     end
 
     hypercube.metamethods.__mul = terra(a : hypercube, b : hypercube)
-        var c = hypercube.intersect(a, b)
-        if not c:isempty() then
+        var cube = hypercube.intersect(a, b)
+        if not cube:isempty() then
             for i = 0, N do
                 if a:issingulardir(i) and not b:issingulardir(i) then
-                    c.I[i] = b.I[i]
+                    cube.I[i] = b.I[i]
                 elseif b:issingulardir(i) and not a:issingulardir(i) then
-                    c.I[i] = a.I[i]
+                    cube.I[i] = a.I[i]
                 elseif a:issingulardir(i) and b:issingulardir(i) then
-                    c.I[i] = a.I[i]
+                    cube.I[i] = a.I[i]
                 else
                     -- not a valid product - return with empty hypercube
-                    c.valid = false
-                    return c
+                    cube.valid = false
+                    return cube
                 end
             end
         end
-        return c
+        cube:setperm()
+        return cube
     end
 
     hypercube.metamethods.__div = terra(a : hypercube, b : hypercube)
-        var c = hypercube.intersect(a, b)
-        if c == b then
+        var cube = hypercube.intersect(a, b)
+        var p = cube:getorigin()
+        if cube == b then
             for i = 0, N do
                 if b:issingulardir(i) then
-                    c.I[i] = a.I[i]
+                    cube.I[i] = a.I[i]
                 else
-                    c.I[i].reach = 0
+                    cube.I[i].reach = 0
+                    cube.I[i].center = cube.I[i].origin
                 end
             end
         else
-            c.valid = false
+            cube.valid = false
         end
-        return c
-    end
-
-    terra hypercube:print(name : rawstring)
-        var I = self.I
-        io.printf("%s : (%0.2f, %0.2f) - (%0.2f, %0.2f)\n", name, I[0](0), I[1](0), I[0](1), I[1](1))
+        cube:setperm()
+        return cube
     end
 
     return hypercube
@@ -341,398 +385,183 @@ local Pyramid = terralib.memoize(function(T, N)
     end
 
     terra pyramid:dim()
-        return self.base.dim()+1
+        return self.base:dim()+1
     end
 
     terra pyramid:height()
-        return 1.0
+        var apex = self.apex
+        var base = self.base
+        var x = base:barycentriccoord(apex)
+        return (apex - base(x)):norm()
     end
 
     terra pyramid:vol()
         return self:height() * self.base:vol() / self:dim()
     end
 
-    pyramid.metamethods.__apply = terra(self : &pyramid)
+    local eval = function(terrafun, self, ...)
+        local args = terralib.newlist{...}
+        local D = #args
+        --first try a point or ntuple or a single primitive type
+        print(D)
+        if D==1  then
+            print("first attempt")
+            local p = args[1]
+            local typ = p.tree.type
+            if typ==point then
+                return `terrafun(&self, [p])
+            elseif typ==ntuple(T,N) then
+                return quote
+                    var q = [&point](&[p]._0)
+                in
+                    terrafun(&self, @q)
+                end
+            end
+        end
+        --else try a list of primitive types arguments
+        print("try other")
+        local x = symbol(point)
+        local expr = terralib.newlist{}
+        for k,v in ipairs(args) do
+            --assert(v.type:isprimitive() "expression requires a primitive type.")
+            expr:insert(quote [x]([k-1]) = [ v ] end)
+        end
+        return quote
+            var [ x ] = point.zeros()
+            [ expr ]
+        in
+            terrafun(&self, [x])
+        end
     end
 
+    local terra __eval(self : &pyramid, x : point)
+        var d = self:dim()
+        var s = x(d-1)
+        var o = self.base:getorigin()
+        var a = self.apex
+        var xs = (1.-s)*a + s*o
+        var vp = s * (self.base(x) - o)
+        return xs + vp
+    end
+
+    pyramid.metamethods.__apply = macro(terralib.memoize(function(self, ...)
+        return eval(__eval, self, ...)
+    end))
+
+    local terra __jac(self : &pyramid, x : point)
+        var d = self:dim()
+        var s = x(d-1)
+        return tmath.pow(s, d-1) * self.base:vol() * self:height()
+    end
+
+    pyramid.methods.jac = macro(terralib.memoize(function(self, ...)
+        return eval(__jac, self, ...)
+    end))
+
+    return pyramid
+end)
+
+local Pyramids = terralib.memoize(function(T, N)
+
+    local hypercube = Hypercube(T, N)
+    local point = Point(T, N)
+    local pyramid = Pyramid(T, N)
+
+    local struct pyramids{
+        cube : hypercube
+        apex : point
+    }
+
+    pyramids.metamethods.__for = function(self, body)
+        return quote
+            var cube = self.cube
+            for k = 0, N do
+                var base = cube
+                if not base:issingulardir(k) then
+                    base.I[k].center = base.I[k](1)
+                    base.I[k].reach = 0
+                    base.I[k].origin = base.I[k].center
+                    base:setperm()
+                    var p = pyramid.new(base, self.apex)
+                    [body(p)]
+                end
+            end
+        end
+    end
+
+    return pyramids
+end)
+
+local ProductPair = terralib.memoize(function(T, N)
+
+    local point = Point(T,N)
+    local hypercube = Hypercube(T, N)
+
+    local struct pair{
+        a : hypercube
+        b : hypercube
+    }
+
+    pair.staticmethods = {}
+
+    pair.metamethods.__getmethod = function(self, methodname)
+        return self.methods[methodname] or pair.staticmethods[methodname]
+    end
+
+    terra pair:getorigin()
+        err.assert(self.a:getorigin()==self.b:getorigin())
+        return self.b:getorigin()
+    end
+
+    terra pair:setorigin(o : point)
+        for k = 0, N do
+            if self.a:issingulardir(k) then
+                self.a.I[k].center = o(k)
+            end
+            self.a.I[k].origin = o(k)
+            if self.b:issingulardir(k) then
+                self.b.I[k].center = o(k)
+            end
+            self.b.I[k].origin = o(k)
+        end
+    end
+
+    local new = terra(a : hypercube, b : hypercube, o : point)
+        err.assert(a:dim() + b:dim() == N, "Product pair has inconsistent dimensions")
+        err.assert((a * b):dim() == N, "Invalid product pair")
+        err.assert(not hypercube.intersect(a, b):isempty(), "Invalid product pair")
+        var prod = pair{a, b}
+        prod:setorigin(o)
+        return prod
+    end
+
+    pair.staticmethods.new = macro(function(a, b, origin)
+        return `new(a, b, origin)
+    end)
+
+    pair.metamethods.__apply = macro(terralib.memoize(function(self, x_a, x_b)
+        return quote
+            var y_a = self.a(x_a)
+            var y_b = self.b(x_b)
+            for k = 0, N do
+                if self.a:issingulardir(k) and not self.b:issingulardir(k) then
+                    y_a(k) = y_b(k)
+                end
+            end
+        in
+            y_a
+        end
+    end))
+
+    return pair
 end)
 
 
-import "terratest/terratest"
-
-
-testenv "point" do
-
-    local point = Point(double, 3)
-    
-    testset "new, apply" do
-        terracode
-            var p = point.new(1, 3, 4)
-        end
-        test p(0)==1
-        test p(1)==3
-        test p(2)==4
-    end
-
-end
-
-testenv "interval" do
-
-    local interval = Interval(double)
-    
-    testset "new, vol, apply" do
-        terracode
-            var I = interval.new(1, 3)
-        end
-        test I.center==2
-        test I.reach==1
-        test I.origin == I.center
-        test I:vol()==2
-    end
-
-    testset "evaluation" do
-        terracode
-            var I = interval.new(1, 3)
-            I.origin = 1.2
-            var J = interval.new(1, 3)
-            J.origin = 2.8
-        end
-        --test I(-0.1)==1 and I(0.9)==3
-        test math.isapprox(I(-0.1), 1.0, 1e-15) 
-        test math.isapprox(I(0.9), 3.0, 1e-15)
-        test math.isapprox(J(-0.1), 3.0, 1e-15) 
-        test math.isapprox(J(0.9), 1.0, 1e-15)
-    end
-
-    testset "barycentric coordinate - matching orientation" do
-        terracode
-            var I = interval.new(1, 3)
-            I:setorigin(1)
-        end
-        test I:barycentriccoord(1)==0
-        test I:barycentriccoord(2)==0.5
-        test I:barycentriccoord(3)==1
-    end
-
-    testset "barycentric coordinate - reverse orientation" do
-        terracode
-            var I = interval.new(1, 3)
-            I:setorigin(3)
-        end
-        test I:barycentriccoord(3)==0
-        test I:barycentriccoord(2)==0.5
-        test I:barycentriccoord(1)==1
-    end
-
-    testset "empty intersection" do
-        terracode
-            var I = interval.new(0, 1)
-            var J = interval.new(2, 3)
-            var Z = interval.intersect(I, J)
-        end
-        test Z.reach == -1
-        test Z:isempty()
-    end
-
-    testset "nonempty intersection - interval" do
-        terracode
-            var I = interval.new(0, 2)
-            var J = interval.new(1, 3)
-            var Z = interval.intersect(I, J)
-        end
-        test Z==interval.new(1, 2)
-        test Z.center==1.5
-        test Z.reach==0.5
-    end
-
-    testset "nonempty intersection - point" do
-        terracode
-            var I = interval.new(0, 1)
-            var J = interval.new(1, 2)
-            var Z = interval.intersect(I, J)
-        end
-        test Z==interval.new(1, 1)
-        test Z.center==1
-        test Z.reach==0
-    end
-
-    testset "comparison" do
-        terracode
-            var I = interval.new(0, 2)
-            var J = interval.new(0, 2)
-            var Z = interval.new(1, 2)
-        end
-        test I == J
-        test I ~= Z
-    end
-end
-
-
-testenv "hypercube - 2" do
-
-    local point = Point(double, 2)
-    local interval = Interval(double)
-    local hypercube = Hypercube(double, 2)
-    
-    testset "new, dim, vol" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(0, 2), interval.new(0, 0))
-            var C = hypercube.new(interval.new(0, 0), interval.new(0, 0))
-        end
-        test A:isempty()==false and B:isempty()==false and C:isempty()==false
-        test A:dim()==2 and A:issingulardir(0)==false and A:issingulardir(1)==false
-        test B:dim()==1 and B:issingulardir(0)==false and B:issingulardir(1)==true
-        test C:dim()==0 and C:issingulardir(0)==true  and C:issingulardir(1)==true
-        test A:vol()==4 and B:vol()==2 and C:vol()==1
-    end
-
-    testset "permutation" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(1, 5))
-            var B = hypercube.new(interval.new(0, 2), interval.new(1, 1))
-            var C = hypercube.new(interval.new(0, 0), interval.new(1, 2))
-        end
-        test A.perm[0] == 0 and A.perm[1] == 1
-        test B.perm[0] == 0 and B.perm[1] == 1
-        test C.perm[0] == 1 and C.perm[1] == 0
-    end
-
-    testset "square evaluation - origin==center" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(1, 5))
-        end
-        test A(0,0) == A:getcenter()
-        test A(0.5,0.5) == point.new(2,5)
-        test A(-0.5,-0.5) == point.new(0,1)
-    end
-
-    testset "square evaluation - custom origin" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(1, 5))
-            A:setorigin(point.new(2,5))
-        end
-        test A(0,0) == point.new(2,5)
-        test A(1,1) == point.new(0,1)
-    end
-
-    testset "segment evaluation - custom origin" do
-        terracode
-            var A = hypercube.new(interval.new(1, 3), interval.new(1, 1))
-            A:setorigin(point.new(3,1))
-        end
-        test A(0) == point.new(3,1)
-        test A(1) == point.new(1,1)
-    end
-
-    testset "empty intersection" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(3, 4), interval.new(0, 2))
-            var C = hypercube.intersect(A, B)
-        end
-        test C:isempty()
-    end
-
-    testset "nonempty intersection - surface" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(1, 3), interval.new(0, 2))
-            var C = hypercube.intersect(A, B)
-        end
-        test C:isempty()==false
-        test C==hypercube.new(interval.new(1, 2), interval.new(0, 2))
-    end
-
-    testset "nonempty intersection - line" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(2, 3), interval.new(0, 2))
-            var C = hypercube.intersect(A, B)
-        end
-        test C:isempty()==false
-        test C==hypercube.new(interval.new(2, 2), interval.new(0, 2))
-    end
-
-    testset "nonempty intersection - point" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(2, 3), interval.new(2, 3))
-            var C = hypercube.intersect(A, B)
-        end
-        test C:isempty()==false
-        test C==hypercube.new(interval.new(2, 2), interval.new(2, 2))
-    end
-
-    testset "product" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 0))
-            var B = hypercube.new(interval.new(0, 0), interval.new(0, 2))
-            var C = A * B
-        end
-        test C:isempty()==false
-        test C==hypercube.new(interval.new(0, 2), interval.new(0, 2))
-    end
-
-    testset "division" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 0))
-            var B = hypercube.new(interval.new(0, 0), interval.new(0, 2))
-            var C = A * B
-        end
-        test (C / A) * A == C
-        test (C / B) * B == C
-    end
-end
-
-testenv "hypercube - 3" do
-
-    local point = Point(double, 3)
-    local interval = Interval(double)
-    local hypercube = Hypercube(double, 3)
-    
-    testset "new, dim, vol" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 0))
-            var C = hypercube.new(interval.new(0, 2), interval.new(0, 0), interval.new(0, 0))
-            var D = hypercube.new(interval.new(0, 0), interval.new(0, 0), interval.new(0, 0))
-        end
-        test A:isempty()==false and B:isempty()==false and C:isempty()==false and D:isempty()==false
-        test A:dim()==3 and A:issingulardir(0)==false and A:issingulardir(1)==false and A:issingulardir(2)==false
-        test B:dim()==2 and B:issingulardir(0)==false and B:issingulardir(1)==false and B:issingulardir(2)==true
-        test C:dim()==1 and C:issingulardir(0)==false and C:issingulardir(1)==true  and C:issingulardir(2)==true
-        test D:dim()==0 and D:issingulardir(0)==true  and D:issingulardir(1)==true  and D:issingulardir(2)==true
-        test A:vol()==8 and B:vol()==4 and C:vol()==2 and D:vol()==1
-    end
-
-    testset "permutation" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(0, 0), interval.new(0, 2), interval.new(0, 2))
-            var C = hypercube.new(interval.new(0, 0), interval.new(0, 1), interval.new(0, 0))
-            var D = hypercube.new(interval.new(0, 0), interval.new(0, 0), interval.new(0, 0))
-        end
-        test A.perm[0] == 0 and A.perm[1] == 1 and A.perm[2] == 2
-        test B.perm[0] == 2 and B.perm[1] == 0 and B.perm[2] == 1
-        test C.perm[0] == 2 and C.perm[1] == 0 and C.perm[2] == 1
-        test D.perm[0] == 2 and D.perm[1] == 1 and D.perm[2] == 0
-    end
-
-    testset "cube evaluation - origin==center" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(1, 5), interval.new(2, 4))
-        end
-        test A(0,0,0) == A:getcenter()
-        test A(0.5,0.5,0.5) == point.new(2,5,4)
-        test A(-0.5,-0.5,-0.5) == point.new(0,1,2)
-    end
-
-    testset "cube evaluation - custom origin" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(1, 5), interval.new(2, 4))
-            A:setorigin(point.new(2,5,4))
-        end
-        test A(0,0,0) == point.new(2,5,4)
-        test A(1,1,1) == point.new(0,1,2)
-    end
-
-    testset "surface evaluation - custom origin" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(1, 1), interval.new(2, 4))
-            A:setorigin(point.new(0,1,2))
-        end
-        test A(0,0) == point.new(0,1,2)
-        test A(1,0) == point.new(2,1,2)
-    end
-
-    testset "segment evaluation - custom origin" do
-        terracode
-            var A = hypercube.new(interval.new(2, 2), interval.new(1, 1), interval.new(1, 3))
-            A:setorigin(point.new(2,1,3))
-        end
-        test A(0) == point.new(2,1,3)
-        test A(1) == point.new(2,1,1)
-    end
-
-    testset "empty intersection" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(3, 4), interval.new(0, 2), interval.new(0, 2))
-            var C = hypercube.intersect(A, B)
-        end
-        test C:isempty()
-    end
-
-    testset "nonempty intersection - cube" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(0, 2), interval.new(1, 3), interval.new(0, 2))
-            var C = hypercube.intersect(A, B)
-        end
-        test C:isempty()==false
-        test C==hypercube.new(interval.new(0, 2), interval.new(1, 2), interval.new(0, 2))
-    end
-
-    testset "nonempty intersection - surface" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(2, 3))
-            var C = hypercube.intersect(A, B)
-        end
-        test C:isempty()==false
-        test C==hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(2, 2))
-    end
-
-    testset "nonempty intersection - line" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(2, 3), interval.new(0, 2), interval.new(2, 3))
-            var C = hypercube.intersect(A, B)
-        end
-        test C:isempty()==false
-        test C==hypercube.new(interval.new(2, 2), interval.new(0, 2), interval.new(2, 2))
-    end
-
-    testset "nonempty intersection - point" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 2))
-            var B = hypercube.new(interval.new(2, 3), interval.new(2, 3), interval.new(2, 3))
-            var C = hypercube.intersect(A, B)
-        end
-        test C:isempty()==false
-        test C==hypercube.new(interval.new(2, 2), interval.new(2, 2), interval.new(2, 2))
-    end
-
-    testset "product" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 0))
-            var B = hypercube.new(interval.new(0, 0), interval.new(0, 0), interval.new(0, 1))
-            var C = A * B
-        end
-        test C:isempty()==false
-        test C==hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 1))
-    end
-
-    testset "division" do
-        terracode
-            var A = hypercube.new(interval.new(0, 2), interval.new(0, 2), interval.new(0, 0))
-            var B = hypercube.new(interval.new(0, 0), interval.new(0, 0), interval.new(0, 1))
-            var C = A * B
-        end
-        test (C / A) * A == C
-        test (C / B) * B == C
-    end
-end
-
-local interval = Interval(double)
-local hypercube = Hypercube(double, 2)
-local point = Point(double, 2)
-
-terra main()
-    
-    var A = hypercube.new(interval.new(0, 2), interval.new(0, 0))
-    A:setorigin(point.new(2,0))
-    io.printf("evaluate A(x, y) = (%0.2f, %0.2f)\n", A(0))
-end
-main()
+return {
+    Point = Point,
+    Interval = Interval,
+    Hypercube = Hypercube,
+    Pyramid = Pyramid,
+    Pyramids = Pyramids,
+    ProductPair = ProductPair
+}
