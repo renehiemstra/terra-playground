@@ -63,21 +63,39 @@ local VectorBase = terralib.memoize(function(V, T, N)
         return V.fill(T(0))
     end
 
-    V.staticmethods.from = macro(function(...)
+    V.staticmethods.from = macro(terralib.memoize(function(...)
         local args = terralib.newlist{...}
-        assert(#args == N, "Length of input list does not match static dimension")
-        local eval = terralib.newlist{}
-        local x = symbol(V)
-        for k, v in ipairs(args) do
-            eval:insert(quote [x].data[ [k-1] ] = [ v ] end)
+        if #args==1 then
+            local v = args[1]
+            local type = v.tree.type
+            if type.convertible == "tuple" then
+                assert(#type.entries == N and "Length of tuple does not match static dimension.")
+                return quote
+                    var x : V
+                    escape
+                        for i = 0, N-1 do
+                            emit quote x(i) = v.[ "_" .. tostring(i) ] end
+                        end
+                    end
+                in
+                    x
+                end
+            end
         end
+        --otherwise try a list of arguments
+        assert(#args == N, "Length of input list does not match static dimension")
         return quote
-            var [x]
-            [eval]
+            var x : V
+            escape
+                for i = 0, N-1 do
+                    local v = args[i+1]
+                    emit quote x(i) = [ v ] end
+                end
+            end
         in
             x
         end
-    end)
+    end))
 
     V.metamethods.__eq = terra(self : V, other : V)
         var v = self.simd == other.simd

@@ -61,7 +61,7 @@ testenv "Static vector - construction" do
             terracode
                 var u = svec.from(1, 2)
                 var v = svec.from(1, 2)
-                var w = svec.from(0, 2)
+                var w = svec.from({0, 2})
             end
             test u:size() == 2
             test u:get(0) == 1
@@ -75,7 +75,7 @@ testenv "Static vector - construction" do
             terracode
                 var u = svec.from(1, 2, 3)
                 var v = svec.from(1, 2, 3)
-                var w = svec.from(0, 2, 3)
+                var w = svec.from({0, 2, 3})
             end
             test u:size() == 3
             test u:get(0) == 1
