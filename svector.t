@@ -141,26 +141,28 @@ local VectorBase = terralib.memoize(function(V, T, N)
         end)
     end
 
-    local __sum = macro(function(self)
-        local eval = terralib.newlist()
-        local s = symbol(T)
-        for i = 0, N-1 do
-            eval:insert(quote [ s ] = [ s ] + self.data[i] end)
-        end
-        return quote
-            var [s] = 0
-            [eval]
-        in
-            [s]
-        end
-    end)
-
     terra V:sum()
-        return __sum(self)
+        var s : T = 0
+        escape
+            for i = 0, N-1 do
+                emit quote s = s + self(i) end
+            end
+        end
+        return s
+    end
+
+    terra V:prod()
+        var s : T = 1
+        escape
+            for i = 0, N-1 do
+                emit quote s = s * self(i) end
+            end
+        end
+        return s
     end
 
     terra V:norm2()
-        return __sum(@self * @self)
+        return (@self * @self):sum()
     end
 
     terra V:norm()

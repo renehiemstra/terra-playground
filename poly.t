@@ -15,25 +15,15 @@ local Polynomial = terralib.memoize(function(T, N)
         return self.methods[methodname] or poly.staticmethods[methodname]
     end
 
-    local _evalpoly = macro(function(self, x)
-        local eval = terralib.newlist()
-        local y = symbol(T)
-        for i=N-2,0,-1 do
-            eval:insert(quote [y] = mathfuns.fusedmuladd(x, [y], self.coeffs(i)) end)
-        end
-        local M = N-1
-        return quote
-            var [y] = self.coeffs.data[M]
-            [eval]
-        in
-            [y]
-        end
-    end)
-
     poly.methods.eval = terra(self : &poly, x : T)
-        return _evalpoly(self, x)
+        var y = self.coeffs.data[N-1]
+        escape
+            for i=N-2,0,-1 do
+                emit quote y = mathfuns.fusedmuladd(x, y, self.coeffs(i)) end
+            end
+        end
+        return y
     end
-
 
     poly.metamethods.__apply = macro(function(self, x)
         return `self:eval(x)
