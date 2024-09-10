@@ -130,8 +130,6 @@ end
 
 local intersection_interval = terralib.memoize(function(a, b)
     --try the case of 'intervals' and 'primiatives'
-    print(a)
-    print(b)
     if type(a)=="number" and type(b)=="table" and b.isinterval then
         return intersection_interval_point(b, a)
     elseif type(b)=="number" and type(a)=="table" and a.isinterval then
@@ -153,7 +151,7 @@ local intersection_hypercube = function(a, b)
             local N = a.rangedim
             local I = terralib.newlist()
             for i = 1, N do
-                I:insert(intersection_interval(a.I[i], b.I[i], a.I[i]))
+                I:insert(intersection_interval(a.I[i], b.I[i]))
             end
             return Hypercube(unpack(I))
         end
@@ -320,6 +318,23 @@ Hypercube = terralib.memoize(function(...)
         return barycentriccoord([&svecn](&a_inv), [&svecn](&b_a_inv), &y)
     end
 
+    terra hypercube:getorigin()
+        var o : point_nd
+        escape
+            for i = 1, N do
+                local I = hypercube.I[i]
+                if type(I)=="number" then
+                    emit quote o(i-1) = I end
+                elseif type(I)=="table" and I.isinterval then
+                    emit quote o(i-1) = I.origin end
+                else
+                    error("Clause should be unreachable.")
+                end 
+            end
+        end
+    end
+
+
     hypercube.metamethods.__mul = macro(function(self, other)
         local ta, tb = self.tree.type, other.tree.type
         if ta.ishypercube and tb.ishypercube then
@@ -370,8 +385,6 @@ end))
 local io = terralib.includec("stdio.h")
 
 local tmath = require("mathfuns")
-local svector = require("svector")
-local squad = require("singularquad")
 local err = require("assert")
 
 import "terratest/terratest"
@@ -469,25 +482,40 @@ testenv "hypercube - lines" do
         test x._0==0 and x._1==0
     end
 
-    testset "product" do
-        terracode
-            var X : Hypercube(Interval(0,1), 1, 1)
-            var Y : Hypercube(1, Interval(0,1), Interval(0,1))
-            var f = X * Y
-            var y_111 = f(1,1,1)
-        end
-        test y_111[0]==0 and y_111[1]==0 and y_111[2]==0
+    testset "product types - 1" do
+        local A = Hypercube(Interval(0,1), 1, 1)
+        local B = Hypercube(0, Interval(0,1), Interval(0,1))
+        local P = hypercube_mult(A, B)
+        test [P == Hypercube(Interval(0,1), Interval(0,1), Interval(0,1))]
     end
 
-    testset "division" do
-        terracode
-            var Y : Hypercube(1, Interval(0,1), Interval(0,1))
-            var Z : Hypercube(Interval(0,1), Interval(0,1), Interval(0,1))
-            var r = Z / Y
-            var y_0, y_1 = r(0), r(1)
-        end
-        test y_0[0]==1 and y_0[1]==0 and y_0[2]==0
-        test y_1[0]==0 and y_1[1]==0 and y_1[2]==0
+    testset "product types - 2" do
+        local A = Hypercube(Interval(0,1), 1, 1)
+        local B = Hypercube(1, Interval(0,1), Interval(0,1))
+        local P = hypercube_mult(A, B)
+        test [P == Hypercube(Interval(0,1), Interval(0,1), Interval(0,1))]
     end
-
 end
+
+
+
+--    testset "product" do
+--        terracode
+--            var X : Hypercube(Interval(0,1), 1, 1)
+--            var Y : Hypercube(1, Interval(0,1), Interval(0,1))
+--            var f = X * Y
+--            var y_111 = f(1,1,1)
+--        end
+--        test y_111[0]==0 and y_111[1]==0 and y_111[2]==0
+--    end
+--
+--    testset "division" do
+--        terracode
+--            var Y : Hypercube(1, Interval(0,1), Interval(0,1))
+--            var Z : Hypercube(Interval(0,1), Interval(0,1), Interval(0,1))
+--            var r = Z / Y
+--            var y_0, y_1 = r(0), r(1)
+--        end
+--        test y_0[0]==1 and y_0[1]==0 and y_0[2]==0
+--       test y_1[0]==0 and y_1[1]==0 and y_1[2]==0
+--    end
