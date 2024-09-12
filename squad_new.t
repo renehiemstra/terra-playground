@@ -47,6 +47,10 @@ local Interval = terralib.memoize(function(a, b)
     interval.volume = volume
     interval.staticmethods = {}
 
+    interval.metamethods.__typename = function(self)
+        return "interval("..tostring(a).."," ..tostring(b)..")"
+    end
+
     --set dispatch static and dynamic methods
     interval.metamethods.__getmethod = function(self, methodname)
         return self.methods[methodname] or interval.staticmethods[methodname]
@@ -129,10 +133,10 @@ local intersection_interval_interval = function(self, other)
     end
 end
 
-local intersection_interval = terralib.memoize(function(a, b)
+local intersection_interval = function(a, b)
     --try the case of 'intervals' and 'primiatives'
     if type(a)=="number" and type(b)=="number" then
-        intersection_point_point(a, b)
+        return intersection_point_point(a, b)
     elseif type(a)=="number" and type(b)=="table" and b.isinterval then
         return intersection_interval_point(b, a)
     elseif type(b)=="number" and type(a)=="table" and a.isinterval then
@@ -143,7 +147,9 @@ local intersection_interval = terralib.memoize(function(a, b)
     else
         error("Function arguments need to be a primitives or intervals.")
     end
-end)
+end
+
+local Hypercube 
 
 local intersection_hypercube = function(a, b)
     if a.ishypercube and b.ishypercube then
@@ -168,25 +174,47 @@ local intersection_hypercube = function(a, b)
     end
 end
 
-local intersect = macro(terralib.memoize(function(self, other)
-    local ta, tb = self.tree.type, other.tree.type
+local get_intersection_type_two_vars = function(a_type, b_type)
     local type = nil
-    if ta.ishypercube and tb.ishypercube then
+    if a_type.ishypercube and b_type.ishypercube then
         --try hypercubes
-        type = intersection_hypercube(ta, tb)
+        type = intersection_hypercube(a_type, b_type)
     else
         --try intervals
-        type = intersection_interval(ta, tb)
+        type = intersection_interval(a_type, b_type)
     end
+    return type
+end
+
+local get_intersection_type
+
+get_intersection_type = function(a_type, b_type, ...)
+    local args = terralib.newlist{...}
+    local type = get_intersection_type_two_vars(a_type, b_type)
+    if #args>0 then
+        type = get_intersection_type(type, ...)
+    end
+    return type
+end
+
+local intersect = macro(function(...)
+    local args = terralib.newlist{...}
+    if #args<2 then
+        error("Expected two or more input arguments.")
+    end
+    local types = terralib.newlist()
+    for i,v in ipairs(args) do
+        types:insert(v.tree.type)
+    end
+    local type = get_intersection_type(unpack(types))
     if type then
         return quote
-            var I : type
+            var intersection_obj : type
         in
-            I
+            intersection_obj
         end
     end
-end))
-
+end)
 
 import "terratest/terratest"
 
@@ -316,44 +344,70 @@ Hypercube = terralib.memoize(function(...)
 
     --definition of struct
     local hypercube = terralib.types.newstruct("hypercube")
-    --add entries (only the intervals)
-    for k = 1, D do
-        local i = perm[k]
-        local ftype = args[i]
-        local fname = "_"..tostring(k-1)
-        hypercube.entries:insert({field = fname, type = ftype})
-    end
-	hypercube:complete()
-
     hypercube.ishypercube = true
     hypercube.volume = volume
     hypercube.rangedim = N
     hypercube.dim = D
     hypercube.I = args
 
-    local point_nd = Point(T, N)
+    --add entries
+    local typename = terralib.newlist()
+    for k = 1, N do
+        local fname, ftype = "_"..tostring(k-1), nil
+        if type(hypercube.I[k])=="number" then
+            ftype = T
+        elseif hypercube.I[k].isinterval then
+            ftype = hypercube.I[k]
+        else
+            error("Expected an interval or a real number.")
+        end
+        hypercube.entries:insert({field = fname, type = ftype})
+        typename:insert(tostring(hypercube.I[k]))
+    end
+	hypercube:complete()
+
+    hypercube.metamethods.__typename = function(self)
+        return "hypercube(" .. table.concat(typename,",") ..")"
+    end
 
     --hypercube origin in physical space
     local origin = terralib.constant(terralib.new(T[N], Origin))
 
+    --set singular dimensions
+    hypercube.methods.__init = terra(self : &hypercube)
+        escape
+            for k = 1, N do
+                local s = "_"..tostring(k-1)
+                if type(hypercube.I[k])=="number" then
+                    emit quote self.[s] = origin[k-1] end
+                else
+                    emit quote self.[s]:__init() end
+                end
+            end
+        end
+    end
+
+    local point_nd = Point(T, N)
+
     --set hypercube origin in parameter space
-    hypercube.methods.setorigin = macro(terralib.memoize(function(self, ...)
+    hypercube.methods.setorigin = macro(function(self, ...)
         local args = terralib.newlist{...}
-        if #args == N then
-            return quote
-                escape
-                    for i = 1, D do
-                        local k = perm[i]
+        if #args ~= N then
+            error("Expected " .. N .. " input arguments.")
+        end
+        return quote
+            escape
+                local tp = self.tree.type
+                for k,v in ipairs(tp:getentries()) do
+                    if v and v.type.isinterval then
+                        local s = v.field
                         local y = args[k]
-                        local field = "_"..tostring(i-1)
-                        emit quote self.[field]:setorigin(y) end
+                        emit quote self.[s]:setorigin([y]) end
                     end
                 end
             end
-        else
-            error("Function requires " .. N .. " input arguments.")
         end
-    end))
+    end)
 
     function hypercube.issingulardir(i)
         return invperm[i] > D
@@ -361,20 +415,21 @@ Hypercube = terralib.memoize(function(...)
 
     hypercube.metamethods.__apply = macro(terralib.memoize(function(self, ...)
         local args = terralib.newlist{...}
-        if #args == D then
-            return quote
-                var y = origin
-                escape
-                    for i = 1, D do
-                        local x = args[i]
-                        local k = perm[i]
-                        local field = "_"..tostring(i-1)
-                        emit quote y[k-1] = self.[field](x) end
-                    end
+        if #args ~= D then
+            error("Expected " .. D .. " input arguments.")
+        end
+        return quote
+            var y = origin
+            escape
+                for i = 1, D do
+                    local x = args[i]
+                    local k = perm[i]
+                    local s = "_"..tostring(k-1)
+                    emit quote y[k-1] = self.[s](x) end
                 end
-            in
-                y
             end
+        in
+            y
         end
     end))
 
@@ -383,19 +438,62 @@ Hypercube = terralib.memoize(function(...)
         escape
             for i = 1, D do
                 local k = perm[i]
-                local field = "_"..tostring(i-1)
-                emit quote x.[field] = self.[field]:barycentriccoord(y(k-1)) end
+                local sx = "_"..tostring(i-1)
+                local sy = "_"..tostring(k-1)
+                emit quote x.[sx] = self.[sy]:barycentriccoord(y(k-1)) end
             end
         end
         return x
     end
+
+    hypercube.metamethods.__mul = macro(function(self, other)
+        local stype, otype = self.tree.type, other.tree.type
+        local multtype = hypercube_mult(stype, otype)
+        if multtype then
+            return quote
+                var res : multtype
+                escape
+                    for k = 1, N do
+                        local s = "_"..tostring(k-1)
+                        if stype.issingulardir(k) and not otype.issingulardir(k) then
+                            emit quote res.[s]:setorigin(other.[s]:getorigin()) end
+                        elseif otype.issingulardir(k) and not stype.issingulardir(k) then
+                            emit quote res.[s]:setorigin(self.[s]:getorigin()) end
+                        end
+                    end
+                end
+            in
+                res
+            end
+        end
+    end)
+
+    hypercube.metamethods.__div = macro(function(self, other)
+        local stype, otype = self.tree.type, other.tree.type
+        local divtype = hypercube_div(stype, otype)
+        if divtype then
+            return quote
+                var res : divtype
+                escape
+                    for k,v in ipairs(divtype:getentries()) do
+                        local s = v.field
+                        if otype.issingulardir(k) and not stype.issingulardir(k) then
+                            emit quote res.[s]:setorigin(other.[s]) end
+                        end
+                    end
+                end
+            in
+                res
+            end
+        end
+    end)
 
     return hypercube
 end)
 
 
 
-testenv "hypercube - lines" do
+testenv "hypercube - 2d" do
 
     local Point = Point(T, 2)
     local Line = Hypercube(2, Interval(3,4))
@@ -405,8 +503,10 @@ testenv "hypercube - lines" do
     end
 
     testset "properties" do
+        test [Line.ishypercube]
         test [Line.dim==1]
         test [Line.rangedim==2]
+        test [Line.volume==1]
     end
 
     testset "evaluation - line" do
@@ -464,88 +564,230 @@ testenv "hypercube - lines" do
 
     testset "product - types" do
         local A = Hypercube(0, Interval(0,1))
-        local B = Hypercube(Interval(0,1), 0)
-        test [hypercube_mult(A, B)==Hypercube(Interval(0,1), Interval(0,1))]
+        local B = Hypercube(Interval(0,2), 0)
+        test [hypercube_mult(A, B)==Hypercube(Interval(0,2), Interval(0,1))]
+        test [hypercube_mult(A, B)==hypercube_mult(B, A)]
     end
 
     testset "product" do
         terracode
-            var l1 : Hypercube(0, Interval(0,1))
-            var l2 : Hypercube(Interval(0,1), 0)
-            var s = l1 * l2 --surface
+            var l1 : Hypercube(Interval(0,2), 0)
+            var l2 : Hypercube(0, Interval(0,1))
+            var surf = l1 * l2 --surface
+            var a, b = surf(0,0), surf(1,1)
         end
-        test
+        test a[0]==0 and a[1]==0
+        test b[0]==2 and b[1]==1
+    end
+
+    testset "product - reversed origin" do
+        terracode
+            var l1 : Hypercube(Interval(0,2), 0)
+            l1:setorigin(2, 0)
+            var l2 : Hypercube(0, Interval(0,1))
+            l2:setorigin(0, 1)
+            var surf = l1 * l2 --surface
+            var a, b = surf(0,0), surf(1,1)
+        end
+        test a[0]==2 and a[1]==1
+        test b[0]==0 and b[1]==0
+    end
+
+    testset "div - types" do
+        local A = Hypercube(Interval(0,2), Interval(0,1))
+        local B = Hypercube(Interval(0,2), 0)
+        local C = Hypercube(0, Interval(0,1))
+        test [hypercube_div(A, B)==C]
+        test [hypercube_div(A, C)==B]
+    end
+
+    testset "div" do
+        terracode
+            var surf : Hypercube(Interval(0,2), Interval(0,1))
+            var l1 : Hypercube(Interval(0,2), 0)
+            var l2 : Hypercube(0, Interval(0,1))
+            var g = surf / l1
+            var g_0, g_1 = g(0), g(1)
+            var h = surf / l2
+            var h_0, h_1 = h(0), h(1)
+        end
+        test g_0[0]==0 and g_0[1]==0 and g_1[0]==0 and g_1[1]==1
+        test h_0[0]==0 and h_0[1]==0 and h_1[0]==2 and h_1[1]==0
+    end
+
+    testset "div - reversed origin" do
+        terracode
+            var surf : Hypercube(Interval(0,2), Interval(0,1))
+            var l1 : Hypercube(Interval(0,2), 1)
+            var l2 : Hypercube(2, Interval(0,1))
+            var g = surf / l1
+            var g_0, g_1 = g(0), g(1)
+            var h = surf / l2
+            var h_0, h_1 = h(0), h(1)
+        end
+        test g_0[0]==0 and g_0[1]==1 and g_1[0]==0 and g_1[1]==0
+        test h_0[0]==2 and h_0[1]==0 and h_1[0]==0 and h_1[1]==0
     end
 
 end
 
+testenv "hypercube - 3d" do
 
-
-
-testenv "hypercube - lines" do
-
-    local point = Point(T, 2)
+    local Point = Point(T, 3)
+    local Vol = Hypercube(Interval(0,1), Interval(2,4), Interval(5,6))
+    local I, J, K = Interval(0,1), Interval(1,2), Interval(2,3)
 
     terracode
-        var line : Hypercube(2, Interval(3,4))
-        var square : Hypercube(Interval(1,3), Interval(3,4))
-        var surface : Hypercube(4, Interval(1,3), Interval(3,4))
-        var volume : Hypercube(Interval(0,1), Interval(2,4), Interval(5,8))
+        var vol : Vol
     end
 
-    testset "evaluation - square" do
-        terracode
-            var a = square(0, 0)
-            var b = square(1, 1)
-        end
-        test a[0]==1 and a[1]==3
-        test b[0]==3 and b[1]==4
-    end
-
-    testset "evaluation - surface" do
-        terracode
-            var a = surface(0, 0)
-            var b = surface(1, 1)
-            var c = surface(0, 1)
-        end
-        test a[0]==4 and a[1]==1 and a[2]==3
-        test b[0]==4 and b[1]==3 and b[2]==4
-        test c[0]==4 and c[1]==1 and c[2]==4
+    testset "properties" do
+        test [Vol.ishypercube]
+        test [Vol.dim==3]
+        test [Vol.rangedim==3]
+        test [Vol.volume==2]
     end
 
     testset "evaluation - volume" do
         terracode
-            var a = volume(0,0,0)
-            var b = volume(1,1,1)
+            var a = vol(0,0,0)
+            var b = vol(1,1,1)
         end
         test a[0]==0 and a[1]==2 and a[2]==5
-        test b[0]==1 and b[1]==4 and b[2]==8
+        test b[0]==1 and b[1]==4 and b[2]==6
+    end
+
+    testset "evaluation - volume - reversed origin" do
         terracode
-            volume:setorigin(1, 4, 8)
-            a = volume(0,0,0)
-            b = volume(1,1,1)
+            vol:setorigin(1, 4, 6)
+            var a = vol(0,0,0)
+            var b = vol(1,1,1)
         end
+        test a[0]==1 and a[1]==4 and a[2]==6
         test b[0]==0 and b[1]==2 and b[2]==5
-        test a[0]==1 and a[1]==4 and a[2]==8
     end
 
-
-    testset "intersection-types - surface" do
-        local A = Hypercube(0, Interval(0,1), Interval(0,1))
-        local B = Hypercube(Interval(0,1), Interval(0,1), 0)
-        test [intersection_hypercube(A, B) == Hypercube(0, Interval(0,1), 0)]
+    testset "barycentric coordinates" do
+        terracode
+            var a = vol:barycentriccoord(Point.from(0,2,5))
+            var b = vol:barycentriccoord(Point.from(1,4,6))
+        end
+        test a._0==0 and a._1==0 and a._2==0
+        test b._0==1 and b._1==1 and b._2==1
     end
 
-    testset "intersection-types - volumes" do
-        local A = Hypercube(Interval(0,1), Interval(0,1), Interval(0,1))
-        local B = Hypercube(Interval(1,2), Interval(0,1), Interval(0,1))
-        local C = Hypercube(Interval(1,2), Interval(1,2), Interval(0,1))
-        local D = Hypercube(Interval(1,2), Interval(1,2), Interval(1,2))
-        test [intersection_hypercube(A, B) == Hypercube(1, Interval(0,1), Interval(0,1))]
-        test [intersection_hypercube(A, C) == Hypercube(1, 1, Interval(0,1))]
-        test [intersection_hypercube(A, D) == Hypercube(1, 1, 1)]
+    testset "barycentric coordinates - reversed origin" do
+        terracode
+            vol:setorigin(1, 4, 6)
+            var a = vol:barycentriccoord(Point.from(0,2,5))
+            var b = vol:barycentriccoord(Point.from(1,4,6))
+        end
+        test a._0==1 and a._1==1 and a._2==1
+        test b._0==0 and b._1==0 and b._2==0
     end
 
+    testset "intersection-types" do
+        --lines
+        test [intersection_hypercube(Hypercube(I, 0, 0), Hypercube(0, I, 0)) == Hypercube(0, 0, 0)]
+        --volumes
+        test [intersection_hypercube(Hypercube(I, I, I), Hypercube(I, I, I)) == Hypercube(I, I, I)]
+        test [intersection_hypercube(Hypercube(I, I, I), Hypercube(J, I, I)) == Hypercube(1, I, I)]
+        test [intersection_hypercube(Hypercube(I, I, I), Hypercube(J, J, I)) == Hypercube(1, 1, I)]
+        test [intersection_hypercube(Hypercube(I, I, I), Hypercube(J, J, J)) == Hypercube(1, 1, 1)]
+        test [intersection_hypercube(Hypercube(I, I, I), Hypercube(K, J, J)) == nil]
+    end
 
+    testset "intersection - 3 lines" do
+        terracode
+            var l1 : Hypercube(I, 0, 0)
+            var l2 : Hypercube(0, I, 0)
+            var l3 : Hypercube(0, 0, I)
+            var p = intersect(l1, l2, l3)
+            var x = p()
+        end
+        test x[0]==0 and x[1]==0 and x[2]==0
+    end
 
+    testset "intersection - 2 volumes" do
+        terracode
+            var v1 : Hypercube(I, I, I)
+            var v2 : Hypercube(J, I, I)
+            var s = intersect(v1, v2)
+            var a, b = s(0, 0), s(1, 1)
+        end
+        test a[0]==1 and a[1]==0 and a[2]==0
+        test b[0]==1 and b[1]==1 and b[2]==1
+    end
+
+    testset "intersection - 3 volumes" do
+        terracode
+            var v1 : Hypercube(I, I, I)
+            var v2 : Hypercube(J, I, I)
+            var v3 : Hypercube(J, J, I)
+            var l = intersect(v1, v2, v3)
+            var a, b = l(0), l(1)
+        end
+        test a[0]==1 and a[1]==1 and a[2]==0
+        test b[0]==1 and b[1]==1 and b[2]==1
+    end
+
+    testset "product - types" do
+        local L1, L2, L3 = Hypercube(I, 0, 0), Hypercube(0, I, 0), Hypercube(0, 0, I)
+        test [hypercube_mult(L1, hypercube_mult(L3, L2))==hypercube_mult(L3, hypercube_mult(L2, L1))]
+    end
+
+    testset "product" do
+        terracode
+            var l1 : Hypercube(Interval(0,1), 1, 2)
+            var l2 : Hypercube(0, Interval(1,2), 2)
+            var l3 : Hypercube(0, 1, Interval(2,3))
+
+            var vol = l1 * l2 * l3 --volume
+            var a, b = vol(0,0,0), vol(1,1,1)
+        end
+        test a[0]==0 and a[1]==1 and a[2]==2
+        test b[0]==1 and b[1]==2 and b[2]==3
+    end
+
+    testset "product - reversed origin" do
+        terracode
+            var l1 : Hypercube(Interval(0,1), 1, 2)
+            l1:setorigin(1, 1, 2)
+            var l2 : Hypercube(0, Interval(1,2), 2)
+            l2:setorigin(0, 2, 2)
+            var l3 : Hypercube(0, 1, Interval(2,3))
+            l3:setorigin(0, 1, 3)
+
+            var vol = l1 * l2 * l3 --volume
+            var a, b = vol(0,0,0), vol(1,1,1)
+        end
+        test b[0]==0 and b[1]==1 and b[2]==2
+        test a[0]==1 and a[1]==2 and a[2]==3
+    end
+
+    testset "div - types" do
+        local A = Hypercube(Interval(0,2), Interval(0,1), Interval(0,1))
+        local B = Hypercube(0, Interval(0,1), Interval(0,1))
+        local C = Hypercube(Interval(0,2), 0, 0)
+        local X1, X2 = hypercube_div(A, B), hypercube_div(A, C)
+        test [X1==C]
+        test [X2==B]
+    end
+
+    testset "div" do
+        terracode
+            var vol : Hypercube(Interval(0,2), Interval(0,1), Interval(0,1))
+            var surf : Hypercube(2, Interval(0,1), Interval(0,1))
+            var line : Hypercube(Interval(0,2), 1, 1)
+            var g = vol / surf
+            var g0, g1 = g(0), g(1)
+            var h = vol / line
+            var h0, h1 = h(0,0), h(1,1)
+        end
+        test g0[0]==2 and g0[1]==0 and g0[2]==0 
+        test g1[0]==0 and g1[1]==0 and g1[2]==0
+        test h0[0]==0 and h0[1]==1 and h0[2]==1 
+        test h1[0]==0 and h1[1]==0 and h1[2]==0
+        
+    end
 end
