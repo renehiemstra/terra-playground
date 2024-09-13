@@ -2,6 +2,7 @@ require("terralibext")
 local io = terralib.includec("stdio.h")
 
 local math = require("math")
+local vec = require("vector")
 local tmath = require("mathfuns")
 local svector = require("svector")
 local err = require("assert")
@@ -646,5 +647,54 @@ testenv "Mapping - 3d - volume" do
         test a._0==1 and a._1==1 and a._2==1
         test b._0==0 and b._1==0 and b._2==0
     end
+
+end
+
+
+
+local Pyramid = function(args)
+
+    local base = args.base
+    local apex = args.apex
+
+    --check inputs
+    if base==nil or apex==nil then
+        error("Expected named arguments 'base' and 'apex'")
+    end
+
+    local M = base.dim+1
+    local N = base.rangedim
+    
+    if not (type(base)=="table" and base.ishypercube) then
+        error("Expected named argument 'base' to be a hypercube.")
+    end
+    if not (type(apex)=="table" and #origin==N) then
+        error("Expected named argument 'apex' to be an array of "..N .. " numbers.")
+    end
+
+    --dummy struct
+    local pyramid = { }
+
+    --static data
+    pyramid.ispyramid = true
+    pyramid.base = base
+    mapping.apex = apex
+
+
+    function pyramid:dim()
+        return self.base.dim+1
+    end
+
+
+    function pyramid:height()
+        --local x = self.base:barycentriccoords(apex)
+        --local y = self.base(x)
+        return 1.0
+    end
+
+    function pyramid:vol()
+        --return self:height() * self.base:vol() / self:dim()
+    end
+
 
 end
