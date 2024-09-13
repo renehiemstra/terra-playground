@@ -22,23 +22,15 @@ end
 local Point = svector.StaticVector
 
 local Interval = {}
-
-Interval.mt = {}
-
-function Interval.mt:__tostring()
-    return "interval("..tostring(self.a)..", " ..tostring(self.b)..")"
-end
-
-function Interval.mt:__eq(other)
-    return self.a==other.a and self.b==other.b
-end
+Interval.__index = Interval;
+Interval.__metatable = Interval;
 
 Interval.new = function(a, b)
 
     assert(type(a)=="number" and type(b)=="number" and "a and b need to be real numbers.")
     assert(a < b)
 
-    --main table
+    --new table
     local interval = {}
 
     --accessible values
@@ -48,16 +40,21 @@ Interval.new = function(a, b)
     interval.b = b
     interval.volume = math.abs(b-a)
 
-    --static 'isinside' lua function
-    interval.isinside = function(x) return (a <= x) and (x <= b) end
-
     --metatable
-    setmetatable(interval, Interval.mt)
-
-    return interval
+    return setmetatable(interval, Interval)
 end
 
-Interval.intersection = function(self, other)
+function Interval:isinside(x) return (self.a <= x) and (x <= self.b) end
+
+function Interval:__tostring()
+    return "interval("..tostring(self.a)..", " ..tostring(self.b)..")"
+end
+
+function Interval:__eq(other)
+    return self.a==other.a and self.b==other.b
+end
+
+function Interval.intersection(self, other)
     
     --check input arguments
     for i,v in ipairs({self, other}) do
@@ -75,7 +72,7 @@ Interval.intersection = function(self, other)
     end
 
     local intersection_interval_point = function(interval, point)
-        if interval.isinside(point) then
+        if interval:isinside(point) then
             return point
         else
             return nil
@@ -128,7 +125,7 @@ testenv "Interval" do
         test [interval.eltype == T]
         test [interval.a == 0]
         test [interval.b == 2]
-        test [interval.isinside(0) and interval.isinside(2) and not interval.isinside(-0.01) and not interval.isinside(2.01)]
+        test [interval:isinside(0) and interval:isinside(2) and not interval:isinside(-0.01) and not interval:isinside(2.01)]
     end
 
     testset "equality" do
@@ -151,32 +148,8 @@ end
 
 
 local Hypercube = {}
-
-Hypercube.mt = {}
-
-function Hypercube.mt:__tostring()
-    return self.typename
-end
-
-Hypercube.mt.__mul = function(self, other)
-    return Hypercube.mul(self, other)
-end
-
-Hypercube.mt.__div = function(self, other)
-    return Hypercube.div(self, other)
-end
-
-Hypercube.mt.__eq = function(self, other)
-    if self.rangedim==other.rangedim then
-        for i=1, self.rangedim do 
-            if self.I[i] ~= other.I[i] then
-                return false
-            end
-        end
-        return true
-    end
-    return false
-end
+Hypercube.__index = Hypercube;
+Hypercube.__metatable = Hypercube;
 
 Hypercube.new = function(...)
 
@@ -207,12 +180,10 @@ Hypercube.new = function(...)
         perm[ invperm[i] ] = i
     end
 
-    --main table
+    --new table
     local hypercube = {}
 
-    --metatable
-    setmetatable(hypercube, Hypercube.mt)
-    
+    --static data members
     hypercube.ishypercube = true
     hypercube.rangedim = N
     hypercube.dim = D
@@ -227,11 +198,27 @@ Hypercube.new = function(...)
     end
     hypercube.typename = "hypercube(" .. table.concat(typename,",") ..")" 
     
-    hypercube.issingulardir = function(i)
-        return invperm[i] > D
-    end
+    return setmetatable(hypercube, Hypercube)
+end
 
-    return hypercube
+function Hypercube:__tostring()
+    return self.typename
+end
+
+function Hypercube:__eq(other)
+    if self.rangedim==other.rangedim then
+        for i=1, self.rangedim do 
+            if self.I[i] ~= other.I[i] then
+                return false
+            end
+        end
+        return true
+    end
+    return false
+end
+
+function Hypercube:issingulardir(i)
+    return self.invperm[i] > self.dim
 end
 
 Hypercube.intersection = function(...)
@@ -286,18 +273,17 @@ Hypercube.intersection = function(...)
     return get_intersection(...)
 end
 
-
-Hypercube.mul = function(self, other)
+Hypercube.__mul = function(self, other)
     local cube = Hypercube.intersection(self, other) --intersection type
     if cube then --non-empty intersection
         local I = cube.I
         local N = self.rangedim
         for i = 1, N do
-            if self.issingulardir(i) and not other.issingulardir(i) then
+            if self:issingulardir(i) and not other:issingulardir(i) then
                 I[i] = other.I[i]
-            elseif other.issingulardir(i) and not self.issingulardir(i) then
+            elseif other:issingulardir(i) and not self:issingulardir(i) then
                 I[i] = self.I[i]
-            elseif self.issingulardir(i) and other.issingulardir(i) then
+            elseif self:issingulardir(i) and other:issingulardir(i) then
                 I[i] = self.I[i]
             else
                 error("This branch should be unreachable.")
@@ -307,13 +293,13 @@ Hypercube.mul = function(self, other)
     end
 end
 
-Hypercube.div = function(self, other)
+Hypercube.__div = function(self, other)
     local cube = Hypercube.intersection(self, other) --intersection type
     if cube then --non-empty intersection
         local I = cube.I
         local N = self.rangedim
         for i = 1, N do
-            if other.issingulardir(i) then
+            if other:issingulardir(i) then
                 I[i] = self.I[i]
             else
                 I[i] = cube.I[i].a
