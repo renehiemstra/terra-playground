@@ -22,8 +22,12 @@ end
 local Point = svector.StaticVector
 
 local Interval = {}
-Interval.__index = Interval;
-Interval.__metatable = Interval;
+Interval.__index = Interval
+Interval.__metatable = Interval
+
+function Interval.isa(t)
+    return getmetatable(t) == Interval
+end
 
 Interval.new = function(a, b)
 
@@ -34,7 +38,6 @@ Interval.new = function(a, b)
     local interval = {}
 
     --accessible values
-    interval.isinterval = true
     interval.eltype = T
     interval.a = a
     interval.b = b
@@ -58,7 +61,7 @@ function Interval.intersection(self, other)
     
     --check input arguments
     for i,v in ipairs({self, other}) do
-        if not (type(v)=="number" or type(v)=="table" and v.isinterval) then
+        if not (type(v)=="number" or type(v)=="table" and Interval.isa(v)) then
             error("Ecpected numbers and/or intervals as input.")
         end
     end
@@ -100,11 +103,11 @@ function Interval.intersection(self, other)
     local get_intersection_type = function(a, b)
         if type(a)=="number" and type(b)=="number" then
             return intersection_point_point(a, b)
-        elseif type(a)=="number" and type(b)=="table" and b.isinterval then
+        elseif type(a)=="number" and type(b)=="table" and Interval.isa(b) then
             return intersection_interval_point(b, a)
-        elseif type(b)=="number" and type(a)=="table" and a.isinterval then
+        elseif type(b)=="number" and type(a)=="table" and Interval.isa(a) then
             return intersection_interval_point(a, b)
-        elseif type(a)=="table" and type(b)=="table" and a.isinterval and b.isinterval then
+        elseif type(a)=="table" and type(b)=="table" and Interval.isa(a) and Interval.isa(b) then
             return intersection_interval_interval(a, b)
         else
             error("Function arguments need to be a primitives or intervals.")
@@ -121,7 +124,7 @@ testenv "Interval" do
 
     testset "static data" do
         local interval = Interval.new(0,2)
-        test [interval.isinterval]
+        test [Interval.isa(interval)]
         test [interval.eltype == T]
         test [interval.a == 0]
         test [interval.b == 2]
@@ -148,8 +151,12 @@ end
 
 
 local Hypercube = {}
-Hypercube.__index = Hypercube;
-Hypercube.__metatable = Hypercube;
+Hypercube.__index = Hypercube
+Hypercube.__metatable = Hypercube
+
+function Hypercube.isa(t)
+    return getmetatable(t) == Hypercube
+end
 
 Hypercube.new = function(...)
 
@@ -165,7 +172,7 @@ Hypercube.new = function(...)
         if type(v)=="number" then
             invperm[i] = beta
             beta = beta - 1
-        elseif v.isinterval then
+        elseif Interval.isa(v) then
             invperm[i] = alpha
             D = D + 1
             volume = volume * v.volume
@@ -184,7 +191,6 @@ Hypercube.new = function(...)
     local hypercube = {}
 
     --static data members
-    hypercube.ishypercube = true
     hypercube.rangedim = N
     hypercube.dim = D
     hypercube.volume = volume
@@ -229,7 +235,7 @@ Hypercube.intersection = function(...)
         error("Expected two or more hypercubes as input.")
     end
     for i,v in ipairs(args) do
-        if not (type(v)=="table" and v.ishypercube) then
+        if not (type(v)=="table" and Hypercube.isa(v)) then
             error("Expected two or more hypercubes as input.")
         end
     end
@@ -309,14 +315,13 @@ Hypercube.__div = function(self, other)
     end
 end
 
-
 testenv "Hypercube - 3d" do
 
     local I, J, K = Interval.new(0,1), Interval.new(1,3), Interval.new(2,5)
 
     testset "static data" do
         local Cube = Hypercube.new(I, J, K)
-        test [Cube.ishypercube]
+        test [Hypercube.isa(Cube)]
         test [Cube.dim==3]
         test [Cube.rangedim==3]
         test [Cube.volume==6]
@@ -361,7 +366,7 @@ local Mapping = terralib.memoize(function(args)
 
     local N = domain.rangedim
     
-    if not (type(domain)=="table" and domain.ishypercube) then
+    if not (type(domain)=="table" and Hypercube.isa(domain)) then
         error("Expected named argument 'domain' to be a hypercube.")
     end
     if not (type(origin)=="table" and #origin==N) then
@@ -392,7 +397,7 @@ local Mapping = terralib.memoize(function(args)
             B:insert(v)
             A_inv:insert(0)
             B_inv:insert(0)
-        elseif v.isinterval then
+        elseif Interval.isa(v) then
             local center = 0.5 * (v.a + v.b)
             local signed = (o<=center) and 1 or -1
             A:insert((v.b - v.a) * signed)
@@ -637,8 +642,11 @@ testenv "Mapping - 3d - volume" do
 end
 
 
+local Pyramid = {}
+Pyramid.__index = Pyramid;
+Pyramid.__metatable = Pyramid;
 
-local Pyramid = function(args)
+Pyramid.new = function(args)
 
     local base = args.base
     local apex = args.apex
@@ -651,7 +659,7 @@ local Pyramid = function(args)
     local M = base.dim+1
     local N = base.rangedim
     
-    if not (type(base)=="table" and base.ishypercube) then
+    if not (type(base)=="table" and Hypercube.isa(base)) then
         error("Expected named argument 'base' to be a hypercube.")
     end
     if not (type(apex)=="table" and #origin==N) then
@@ -666,21 +674,19 @@ local Pyramid = function(args)
     pyramid.base = base
     mapping.apex = apex
 
+    return setmetatable(pyramid, Pyramid)
+end
 
-    function pyramid:dim()
-        return self.base.dim+1
-    end
+function Pyramid:dim()
+    return self.base.dim+1
+end
 
+function Pyramid:height()
+    --local x = self.base:barycentriccoords(apex)
+    --local y = self.base(x)
+    return 1.0
+end
 
-    function pyramid:height()
-        --local x = self.base:barycentriccoords(apex)
-        --local y = self.base(x)
-        return 1.0
-    end
-
-    function pyramid:vol()
-        --return self:height() * self.base:vol() / self:dim()
-    end
-
-
+function Pyramid:vol()
+    --return self:height() * self.base:vol() / self:dim()
 end

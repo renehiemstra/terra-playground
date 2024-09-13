@@ -14,6 +14,10 @@ function vector.new(x, y, z)
     end
 end
 
+function vector.isa(v)
+    return getmetatable(v) == vector
+end
+
 function vector:dim()
     return #self
 end
@@ -93,6 +97,8 @@ end
 -- 2D vectors
 local v = vector.new(3,4)
 local w = vector.new(3,2)
+--test if isa vector
+assert(vector.isa(v))
 --test dimension
 assert(v:dim()==2 and w:dim()==2)
 --test addition
@@ -111,6 +117,8 @@ assert(v:norm()==5)
 --3D vectors
 local v = vector.new(3,4,5)
 local w = vector.new(3,2,1)
+--test if isa vector
+assert(vector.isa(v))
 --test dimension
 assert(v:dim()==3 and w:dim()==3)
 --test addition
