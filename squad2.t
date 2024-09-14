@@ -41,7 +41,6 @@ Interval.new = function(a, b)
     interval.eltype = T
     interval.a = a
     interval.b = b
-    interval.volume = math.abs(b-a)
 
     --metatable
     return setmetatable(interval, Interval)
@@ -55,6 +54,18 @@ end
 
 function Interval:__eq(other)
     return self.a==other.a and self.b==other.b
+end
+
+function Interval:__call(x)
+    return self.a * (1 - x) + self.b * x
+end
+
+function Interval:barycentriccoord(y)
+    return (y - self.a) / (self.b - self.a)
+end
+
+function Interval:vol()
+    return math.abs(self.b-self.a)
 end
 
 function Interval.intersection(self, other)
@@ -147,6 +158,14 @@ testenv "Interval" do
         test [Interval.intersection(I,L)==nil]
     end
 
+    testset "evaluation" do
+        local interval = Interval.new(1,3)
+        test [interval(0) == 1]
+        test [interval(1) == 3]
+        test [interval(interval:barycentriccoord(1)) == 1]
+        test [interval(interval:barycentriccoord(3)) == 3]
+    end
+
 end
 
 
@@ -175,7 +194,7 @@ Hypercube.new = function(...)
         elseif Interval.isa(v) then
             invperm[i] = alpha
             D = D + 1
-            volume = volume * v.volume
+            volume = volume * v:vol()
             alpha = alpha + 1  
         else
             error("Arguments should be an interval or a number.")
@@ -190,10 +209,7 @@ Hypercube.new = function(...)
     --new table
     local hypercube = {}
 
-    --static data members
-    hypercube.rangedim = N
-    hypercube.dim = D
-    hypercube.volume = volume
+    --static data member
     hypercube.I = args
     hypercube.perm = perm
     hypercube.invperm = invperm
@@ -203,7 +219,23 @@ Hypercube.new = function(...)
         typename:insert(tostring(hypercube.I[k]))
     end
     hypercube.typename = "hypercube(" .. table.concat(typename,",") ..")" 
-    
+
+    function hypercube:vol()
+        return volume
+    end
+
+    function hypercube:dim()
+        return D
+    end
+
+    function hypercube:rangedim()
+        return N
+    end
+
+    function hypercube:issingulardir(i)
+        return invperm[i] > D
+    end
+
     return setmetatable(hypercube, Hypercube)
 end
 
@@ -212,8 +244,8 @@ function Hypercube:__tostring()
 end
 
 function Hypercube:__eq(other)
-    if self.rangedim==other.rangedim then
-        for i=1, self.rangedim do 
+    if self:rangedim()==other:rangedim() then
+        for i=1, self:rangedim() do 
             if self.I[i] ~= other.I[i] then
                 return false
             end
@@ -223,8 +255,34 @@ function Hypercube:__eq(other)
     return false
 end
 
-function Hypercube:issingulardir(i)
-    return self.invperm[i] > self.dim
+function Hypercube:__call(x)
+    if (type(x)~="table") or (type(x)=="table" and #x ~= self:dim()) then
+        error("Expected an array of" .. self:dim() .. " real numbers.")
+    end
+    local N = self:rangedim()
+    local y = terralib.newlist{}
+    for i,v in ipairs(self.I) do
+        local k = self.invperm[i]
+        if Interval.isa(v) then
+            y:insert(v(x[k]))
+        elseif type(v)=="number" then
+            y:insert(v)
+        else
+            error("Expected a real number or an interval.")
+        end
+    end
+    return vec.new(y)
+end
+
+function Hypercube:barycentriccoords(y)
+    local D = self:dim()
+    local N = self:rangedim()
+    local x = terralib.newlist{}
+    for k = 1, D do
+        local i = self.perm[k]
+        x:insert(self.I[i]:barycentriccoord(y[i]))
+    end
+    return vec.new(x)
 end
 
 Hypercube.intersection = function(...)
@@ -240,7 +298,7 @@ Hypercube.intersection = function(...)
         end
     end
     for i,v in ipairs(args) do
-        if not (v.rangedim==args[1].rangedim) then
+        if not (v:rangedim()==args[1]:rangedim()) then
             error("Expected hypercubes with range dimension "..tostring(rangedim))
         end
     end
@@ -250,7 +308,7 @@ Hypercube.intersection = function(...)
         --if a == b then
         --    return a
         --else
-            local N = a.rangedim
+            local N = a:rangedim()
             local I = terralib.newlist()
             for i = 1, N do
                 local intersection = Interval.intersection(a.I[i], b.I[i])
@@ -283,7 +341,7 @@ Hypercube.__mul = function(self, other)
     local cube = Hypercube.intersection(self, other) --intersection type
     if cube then --non-empty intersection
         local I = cube.I
-        local N = self.rangedim
+        local N = self:rangedim()
         for i = 1, N do
             if self:issingulardir(i) and not other:issingulardir(i) then
                 I[i] = other.I[i]
@@ -303,7 +361,7 @@ Hypercube.__div = function(self, other)
     local cube = Hypercube.intersection(self, other) --intersection type
     if cube then --non-empty intersection
         local I = cube.I
-        local N = self.rangedim
+        local N = self:rangedim()
         for i = 1, N do
             if other:issingulardir(i) then
                 I[i] = self.I[i]
@@ -322,9 +380,9 @@ testenv "Hypercube - 3d" do
     testset "static data" do
         local Cube = Hypercube.new(I, J, K)
         test [Hypercube.isa(Cube)]
-        test [Cube.dim==3]
-        test [Cube.rangedim==3]
-        test [Cube.volume==6]
+        test [Cube:dim()==3]
+        test [Cube:rangedim()==3]
+        test [Cube:vol()==6]
     end
 
     testset "intersection" do
@@ -352,7 +410,90 @@ testenv "Hypercube - 3d" do
         test [(B * C) / B == C]
     end
 
+    testset "evaluation" do
+        local Cube = Hypercube.new(I, J, K)
+        test [Cube{0,0,0} == vec.new{0,1,2}] 
+        test [Cube{1,1,1} == vec.new{1,3,5}]
+        test [Cube(Cube:barycentriccoords{0,1,2}) == vec.new{0,1,2}]
+    end
 end
+
+
+local Pyramid = {}
+Pyramid.__index = Pyramid;
+Pyramid.__metatable = Pyramid;
+
+function Pyramid.isa(t)
+    return getmetatable(t) == Pyramid
+end
+
+Pyramid.new = function(args)
+
+    local base = args.base
+    local apex = args.apex
+
+    --check inputs
+    if base==nil or apex==nil then
+        error("Expected named arguments 'base' and 'apex'")
+    end
+
+    local M = base:dim()+1
+    local N = base:rangedim()
+    
+    if not (type(base)=="table" and Hypercube.isa(base)) then
+        error("Expected named argument 'base' to be a hypercube.")
+    end
+    if not (type(apex)=="table" and #apex==N) then
+        error("Expected named argument 'apex' to be an array of "..N .. " numbers.")
+    end
+    --wrap into a vector if needed
+    if not vec.isa(apex) then
+        apex = vec.new(apex)
+    end
+
+    --dummy struct
+    local pyramid = { }
+
+    --static data
+    pyramid.base = base
+    pyramid.apex = apex
+
+    function pyramid:dim()
+        return self.base:dim()+1
+    end
+
+    function pyramid:height()
+        local x = base:barycentriccoords(apex)
+        local y = base(x)
+        return (apex - y):norm()
+    end
+
+    function pyramid:vol()
+        return self:height() * base:vol() / self:dim()
+    end
+
+    return setmetatable(pyramid, Pyramid)
+end
+
+testenv "Pyramid - 2D" do
+
+    local Point = Point(T, 3)
+
+    --compute hypercube at compile-time
+    local base = Hypercube.new(2, Interval.new(0,1))
+    local apex = vec.new{0,0}
+
+    local P = Pyramid.new{base=base, apex=apex}
+
+    testset "properties" do
+        test [P:dim() == 2]
+        test [P:height() == 2]
+        test [P:vol() == 1]
+    end
+
+end
+
+
 
 local Mapping = terralib.memoize(function(args)
 
@@ -364,7 +505,7 @@ local Mapping = terralib.memoize(function(args)
         error("Expected named arguments 'domain' and origin")
     end
 
-    local N = domain.rangedim
+    local N = domain:rangedim()
     
     if not (type(domain)=="table" and Hypercube.isa(domain)) then
         error("Expected named argument 'domain' to be a hypercube.")
@@ -380,7 +521,6 @@ local Mapping = terralib.memoize(function(args)
     mapping.ismapping = true
     mapping.domain = domain
     mapping.origin = origin
-
 
     --generate inverse permutation, and fill A and B with data for linear
     --map: A * X + B, such that [0,1]^N maps to the hypercube
@@ -456,7 +596,6 @@ local Mapping = terralib.memoize(function(args)
         return x
     end
 
-
     return mapping
 end)
 
@@ -473,8 +612,8 @@ testenv "Mapping - 3d - line" do
 
     testset "properties" do
         test [F.ismapping]
-        test [F.domain.dim==1]
-        test [F.domain.rangedim==3]
+        test [F.domain:dim()==1]
+        test [F.domain:rangedim()==3]
     end
 
     terracode
@@ -533,8 +672,8 @@ testenv "Mapping - 3d - surface" do
 
     testset "properties" do
         test [F.ismapping]
-        test [F.domain.dim==2]
-        test [F.domain.rangedim==3]
+        test [F.domain:dim()==2]
+        test [F.domain:rangedim()==3]
     end
 
     terracode
@@ -580,7 +719,6 @@ testenv "Mapping - 3d - surface" do
 
 end
 
-
 testenv "Mapping - 3d - volume" do
 
     local Point = Point(T, 3)
@@ -594,8 +732,8 @@ testenv "Mapping - 3d - volume" do
 
     testset "properties" do
         test [F.ismapping]
-        test [F.domain.dim==3]
-        test [F.domain.rangedim==3]
+        test [F.domain:dim()==3]
+        test [F.domain:rangedim()==3]
     end
 
     terracode
@@ -639,54 +777,4 @@ testenv "Mapping - 3d - volume" do
         test b._0==0 and b._1==0 and b._2==0
     end
 
-end
-
-
-local Pyramid = {}
-Pyramid.__index = Pyramid;
-Pyramid.__metatable = Pyramid;
-
-Pyramid.new = function(args)
-
-    local base = args.base
-    local apex = args.apex
-
-    --check inputs
-    if base==nil or apex==nil then
-        error("Expected named arguments 'base' and 'apex'")
-    end
-
-    local M = base.dim+1
-    local N = base.rangedim
-    
-    if not (type(base)=="table" and Hypercube.isa(base)) then
-        error("Expected named argument 'base' to be a hypercube.")
-    end
-    if not (type(apex)=="table" and #origin==N) then
-        error("Expected named argument 'apex' to be an array of "..N .. " numbers.")
-    end
-
-    --dummy struct
-    local pyramid = { }
-
-    --static data
-    pyramid.ispyramid = true
-    pyramid.base = base
-    mapping.apex = apex
-
-    return setmetatable(pyramid, Pyramid)
-end
-
-function Pyramid:dim()
-    return self.base.dim+1
-end
-
-function Pyramid:height()
-    --local x = self.base:barycentriccoords(apex)
-    --local y = self.base(x)
-    return 1.0
-end
-
-function Pyramid:vol()
-    --return self:height() * self.base:vol() / self:dim()
 end
