@@ -579,25 +579,22 @@ Hypercube.mapping = terralib.memoize(function(args)
     local perm = domain.perm
     local invperm = domain.invperm
 
-    mapping.metamethods.__apply = macro(terralib.memoize(function(self, ...)
-        local args = terralib.newlist{...}
-        if #args ~= D then
-            error("Expected " .. D .. " input arguments.")
-        end
-        return quote
-            var y = [mapping.b]
-            escape
-                for i = 1, D do
-                    local x = args[i]
-                    local k = perm[i]
-                    local a, b = A[k], B[k]
-                    emit quote y[k-1] = tmath.fusedmuladd([T](a), [T](x), [T](b)) end
-                end
+    mapping.metamethods.__apply = terra(self : &mapping, x : ntuple(T, D))
+        var y = [mapping.b]
+        escape
+            for i = 1, D do
+                local s = "_"..tostring(i-1)
+                local k = perm[i]
+                local a, b = A[k], B[k]
+                emit quote y[k-1] = tmath.fusedmuladd([T](a), x.[s], [T](b)) end
             end
-        in
-            y
         end
-    end))
+        return y
+    end
+
+    mapping.methods.vol = terra(self : &mapping, x : ntuple(T, D))
+        return [mapping.domain:vol()]
+    end
 
     local point_nd = Point(T, N)
 
@@ -641,8 +638,8 @@ testenv "Mapping - 3d - line" do
 
     testset "evaluation" do
         terracode
-            var a = f(0)
-            var b = f(1)
+            var a = f({0})
+            var b = f({1})
         end
         test a[0]==1 and a[1]==2 and a[2]==2
         test b[0]==1 and b[1]==4 and b[2]==2
@@ -650,8 +647,8 @@ testenv "Mapping - 3d - line" do
 
     testset "evaluation - reversed origin" do
         terracode
-            var a = g(0)
-            var b = g(1)
+            var a = g({0})
+            var b = g({1})
         end
         test a[0]==1 and a[1]==4 and a[2]==2
         test b[0]==1 and b[1]==2 and b[2]==2
@@ -701,8 +698,8 @@ testenv "Mapping - 3d - surface" do
 
     testset "evaluation" do
         terracode
-            var a = f(0,0)
-            var b = f(1,1)
+            var a = f({0,0})
+            var b = f({1,1})
         end
         test a[0]==1 and a[1]==2 and a[2]==5
         test b[0]==1 and b[1]==4 and b[2]==6
@@ -710,8 +707,8 @@ testenv "Mapping - 3d - surface" do
 
     testset "evaluation - reversed origin" do
         terracode
-            var a = g(0,0)
-            var b = g(1,1)
+            var a = g({0,0})
+            var b = g({1,1})
         end
         test a[0]==1 and a[1]==4 and a[2]==6
         test b[0]==1 and b[1]==2 and b[2]==5
@@ -761,8 +758,8 @@ testenv "Mapping - 3d - volume" do
 
     testset "evaluation" do
         terracode
-            var a = f(0,0,0)
-            var b = f(1,1,1)
+            var a = f({0,0,0})
+            var b = f({1,1,1})
         end
         test a[0]==0 and a[1]==2 and a[2]==5
         test b[0]==1 and b[1]==4 and b[2]==6
@@ -770,8 +767,8 @@ testenv "Mapping - 3d - volume" do
 
     testset "evaluation - reversed origin" do
         terracode
-            var a = g(0,0,0)
-            var b = g(1,1,1)
+            var a = g({0,0,0})
+            var b = g({1,1,1})
         end
         test a[0]==1 and a[1]==4 and a[2]==6
         test b[0]==0 and b[1]==2 and b[2]==5
@@ -946,20 +943,16 @@ Pyramid.mapping = terralib.memoize(function(args)
         return x, s
     end
 
-    mapping.metamethods.__apply = macro(function(self,...) 
-        local x, s = extractargs(...)
-        return quote
-            var b = base(x)
-            var y = eval(s, [&vec](&apex), [&vec](&b))
-        in
-            [&T](&y)
-        end
-    end)
+    mapping.metamethods.__apply = terra(self : &mapping, x : ntuple(T,D-1), s : T)
+        var b = base(x)
+        var y = eval(s, [&vec](&apex), [&vec](&b))
+        var ptr_y  = [ &T[N] ](&y)
+        return @ptr_y
+    end
 
-    mapping.methods.vol = macro(function(self, ...)
-        local x, s = extractargs(...)
-        return `tmath.pow([T](s),D-1) * [domain.base:vol()] * [domain:height()] 
-    end)
+    mapping.methods.vol = terra(self : &mapping, x : ntuple(T,D-1), s : T)
+        return tmath.pow(s, D-1) * [domain.base:vol()] * [domain:height()] 
+    end
 
     return mapping
 end)
@@ -992,9 +985,9 @@ testenv "Pyramid - 2D" do
     testset "evaluation" do
         terracode
             var p : mapping
-            var a = p(0,0)
-            var b = p(0,1)
-            var c = p(1,1)
+            var a = p({0}, 0)
+            var b = p({0}, 1)
+            var c = p({1}, 1)
         end
         test a[0]==1 and a[1]==0
         test b[0]==3 and b[1]==0
@@ -1004,9 +997,9 @@ testenv "Pyramid - 2D" do
     testset "jacobian" do
         terracode
             var p : mapping
-            var va = p:vol(0,0)
-            var vb = p:vol(0,1)
-            var vc = p:vol(1,1)
+            var va = p:vol({0},0)
+            var vb = p:vol({0},1)
+            var vc = p:vol({1},1)
         end
         test va==0
         test vb==2
@@ -1044,9 +1037,9 @@ testenv "Pyramid - 3D" do
     testset "evaluation" do
         terracode
             var p : mapping
-            var a = p(0,0,0)
-            var b = p(0,0,1)
-            var c = p(1,1,1)
+            var a = p({0,0},0)
+            var b = p({0,0},1)
+            var c = p({1,1},1)
         end
         test a[0]==1 and a[1]==1 and a[2]==1
         test b[0]==4 and b[1]==0 and b[2]==0
@@ -1056,9 +1049,9 @@ testenv "Pyramid - 3D" do
     testset "jacobian" do
         terracode
             var p : mapping
-            var va = p:vol(0,0,0)
-            var vb = p:vol(0,0,1)
-            var vc = p:vol(1,1,1)
+            var va = p:vol({0,0},0)
+            var vb = p:vol({0,0},1)
+            var vc = p:vol({1,1},1)
         end
         test va==0
         test vb==3
@@ -1086,6 +1079,7 @@ ProductPair.new = function(A, B)
     if not (Hypercube.isa(A) and Hypercube.isa(B)) then
         error("Expected named arguments 'A' and 'B' to be of type hypercube.")
     end
+    local N = A:rangedim()
     if A:rangedim()~=B:rangedim() then
        error("Range dimensions of A and B are inconsistent.")
     end
@@ -1094,7 +1088,6 @@ ProductPair.new = function(A, B)
         error("Invalid product pair.")
     end
     local V = A * B
-    local N = A:rangedim()
     if V==nil or V:dim()~=N then
         error("Invalid product pair.")
     end
@@ -1124,6 +1117,7 @@ end
 ProductPair.mapping = terralib.memoize(function(args)
 
     local domain = args.domain
+    local origin = args.origin
 
     --check inputs
     if domain==nil then
@@ -1132,34 +1126,39 @@ ProductPair.mapping = terralib.memoize(function(args)
     if not (type(domain)=="table" and ProductPair.isa(domain)) then
         error("Expected named argument 'domain' to be a 'ProductPair'.")
     end
+    local N = domain:rangedim()
+    if origin~=nil and not (type(origin)=="table" and #origin==N) then
+        error("Expected optional named argument 'origin' to be an array of "..N .. " numbers.")
+    end
 
     local D1, D2 = domain:dim()
     local N = domain:rangedim()
 
-    local A = terralib.constant(terralib.new(Hypercube.mapping{domain=domain.A}))
-    local B = terralib.constant(terralib.new(Hypercube.mapping{domain=domain.B}))
+    local A = terralib.constant(terralib.new(Hypercube.mapping{domain=domain.A, origin=origin}))
+    local B = terralib.constant(terralib.new(Hypercube.mapping{domain=domain.B, origin=origin}))
 
     --dummy struct
-    local struct mapping{ }
+    local struct mapping{
+    }
 
     --static data
     mapping.ismapping = true
     mapping.domain = domain
 
-    mapping.metamethods.__apply = terra(x_1 : ntuple(T,D1), x_2 : ntuple(T,D2))
+    mapping.metamethods.__apply = terra(self : &mapping, x_1 : ntuple(T,D1), x_2 : ntuple(T,D2))
         var y_1, y_2 = A(x_1), B(x_2)
         escape
             local I = domain.A.I
             for i=1,N do
                 if not Interval.isa(I[i]) then
-                    emit quote y_1[i] = y_2[i] end
+                    emit quote y_1[i-1] = y_2[i-1] end
                 end
             end
         end
         return y_1
     end
 
-    mapping.methods.vol = terra(x_1 : ntuple(T,D1), x_2 : ntuple(T,D2))
+    mapping.methods.vol = terra(self : &mapping, x_1 : ntuple(T,D1), x_2 : ntuple(T,D2))
         return A:vol(x_1) * B:vol(x_2)
     end
 
@@ -1170,13 +1169,75 @@ testenv "ProductPair - 3d" do
 
     local I, J = Interval.new(0,1), Interval.new(1,2)
     
-    testset "intersection" do
-        local A, B = Hypercube.new(I, I, I),  Hypercube.new(J, I, I)
-        local C = Hypercube.intersection(A, B)
-        local x = ProductPair.new(A / C, C)
-        local y = ProductPair.new(B / C, C)
+    testset "static data" do
+        local X, Y = Hypercube.new(I, I, I),  Hypercube.new(J, I, I)
+        local Z = Hypercube.intersection(X, Y)
+        local x = ProductPair.new(X / Z, Z)
+        local y = ProductPair.new(Y / Z, Z)
         test [x~=nil and x.A:dim()==1 and x.B:dim()==2]
         test [y~=nil and y.A:dim()==1 and y.B:dim()==2]
+    end
+
+    testset "0-dimensional intersection" do
+        local A, B = Hypercube.new(I, I, I),  Hypercube.new(J, J, J)
+        local C = Hypercube.intersection(A, B)
+        local P_a = ProductPair.new(C, A / C)
+        local P_b = ProductPair.new(C, B / C)
+        terracode
+            var prod_a : ProductPair.mapping{domain=P_a, origin={1,1,1}}
+            var prod_b : ProductPair.mapping{domain=P_b, origin={1,1,1}}
+            var y_a = prod_a({}, {0.1,0.2,0.3})
+            var y_b = prod_b({}, {0.1,0.2,0.3})
+        end
+        test y_a[0]==0.9 and y_a[1]==0.8 and y_a[2]==0.7
+        test y_b[0]==1.1 and y_b[1]==1.2 and y_b[2]==1.3
+    end
+
+    testset "1-dimensional intersection" do
+        local A, B = Hypercube.new(I, I, I),  Hypercube.new(J, J, I)
+        local C = Hypercube.intersection(A, B)
+        local P_a = ProductPair.new(C, A / C)
+        local P_b = ProductPair.new(C, B / C)
+        terracode
+            var prod_a : ProductPair.mapping{domain=P_a, origin={1,1,0}}
+            var prod_b : ProductPair.mapping{domain=P_b, origin={1,1,0}}
+            var y_a = prod_a({0.1}, {0.2,0.3})
+            var y_b = prod_b({0.1}, {0.2,0.3})
+        end
+        test y_a[0]==0.8 and y_a[1]==0.7 and y_a[2]==0.1
+        test y_b[0]==1.2 and y_b[1]==1.3 and y_b[2]==0.1
+    end
+    local K, L = Interval.new(1,3), Interval.new(3,4)
+    
+    testset "2-dimensional intersection" do
+        local A, B = Hypercube.new(K, I, I),  Hypercube.new(L, I, I)
+        local C = Hypercube.intersection(A, B)
+        local P_a = ProductPair.new(C, A / C)
+        local P_b = ProductPair.new(C, B / C)
+        terracode
+            var prod_a : ProductPair.mapping{domain=P_a, origin={3,0,0}}
+            var prod_b : ProductPair.mapping{domain=P_b, origin={3,0,0}}
+            var a_0 = prod_a({0.2,0.3},{0.0})
+            var a_1 = prod_a({0.2,0.3},{1.0})
+            var b_0 = prod_b({0.2,0.3},{0.0})
+            var b_1 = prod_b({0.2,0.3},{1.0})
+        end
+        --points a
+        test a_0[0]==3.0 and a_0[1]==0.2 and a_0[2]==0.3
+        test a_1[0]==1.0 and a_1[1]==0.2 and a_1[2]==0.3
+        --points b
+        test b_0[0]==3.0 and b_0[1]==0.2 and b_0[2]==0.3
+        test b_1[0]==4.0 and b_1[1]==0.2 and b_1[2]==0.3
+    end
+
+    testset "3-dimensional intersection" do
+        local A = Hypercube.new(K,I,J)
+        local P = ProductPair.new(A, A / A)
+        terracode
+            var prod : ProductPair.mapping{domain=P, origin={1,0,1}}
+            var a = prod({0.5,0.5,0.5},{})
+        end
+        test a[0]==2.0 and a[1]==0.5 and a[2]==1.5
     end
 
 end
