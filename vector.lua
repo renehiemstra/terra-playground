@@ -4,7 +4,8 @@ vector.__index = vector;
 vector.__metatable = vector;
 
 function vector.new(v)
-    if type(v)=="table" and (#v==1 or #v==2 or #v==3) then
+    local n = #v
+    if type(v)=="table" and (n==1 or n==2 or n==3) then
         return setmetatable(v, vector)
     else
         error("Expexted an array of one or more real numbers as arguments.")

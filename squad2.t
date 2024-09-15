@@ -19,6 +19,12 @@ local ntuple = function(T, N)
     return tuple(unpack(t))
 end
 
+function table.copy(t)
+    local u = { }
+    for k, v in pairs(t) do u[k] = v end
+    return setmetatable(u, getmetatable(t))
+end
+
 local Point = svector.StaticVector
 
 local Interval = {}
@@ -58,6 +64,30 @@ end
 
 function Interval:__call(x)
     return self.a * (1 - x) + self.b * x
+end
+
+function Interval:__add(x)
+    if type(x)=="number" then
+        return Interval.new(self.a + x, self.b + x)
+    elseif type(self)=="number" then
+        return Interval.new(x.a + self, x.b + self)
+    else
+        error("Wrong input arguments.")
+    end
+end
+
+function Interval:__sub(other)
+    if type(other)=="number" then
+        return Interval.new(self.a - other, self.b - other)
+    elseif type(self)=="number" then
+        return Interval.new(-other.b + self, -other.a + self)
+    else
+        error("Wrong input arguments.")
+    end
+end
+
+function Interval:__unm()
+    return Interval.new(-self.b, -self.a)
 end
 
 function Interval:barycentriccoord(y)
@@ -128,7 +158,6 @@ function Interval.intersection(self, other)
     return get_intersection_type(self, other)
 end
 
-
 import "terratest/terratest"
 
 testenv "Interval" do
@@ -166,8 +195,16 @@ testenv "Interval" do
         test [interval(interval:barycentriccoord(3)) == 3]
     end
 
-end
+    testset "addition / subtraction" do
+        local I = Interval.new(1,3)
+        test [I + 1 == Interval.new(2,4)]
+        test [1 + I == Interval.new(2,4)]
+        test [I - 1 == Interval.new(0,2)]
+        test [1 - I == Interval.new(-2,0)]
+        test [-I == Interval.new(-3,-1)]
+    end
 
+end
 
 local Hypercube = {}
 Hypercube.__index = Hypercube
@@ -272,6 +309,45 @@ function Hypercube:__call(x)
         end
     end
     return vec.new(y)
+end
+
+--translate a hypercube with a vector
+local translate_cube = function(cube, v, sign)
+    local N = cube:rangedim()
+    assert(#v==N and "Dimensions are inconsistent.")
+    local args = terralib.newlist{}
+    for i = 1, N do
+        args:insert(cube.I[i] + sign * v[i])
+    end
+    return Hypercube.new(unpack(args))
+end
+
+function Hypercube:__add(other)
+    if Hypercube.isa(self) and type(other)=="table" and #other==self:rangedim() then
+        return translate_cube(self, other, 1)
+    elseif Hypercube.isa(other) and type(self)=="table" and #self==other:rangedim() then
+        return translate_cube(other, self, 1)
+    else
+        error("Wrong input arguments.")
+    end
+end
+
+function Hypercube:__unm()
+    local args = terralib.newlist{}
+    for i = 1, self:rangedim() do
+        args:insert(-self.I[i])
+    end
+    return Hypercube.new(unpack(args))
+end
+
+function Hypercube:__sub(other)
+    if Hypercube.isa(self) and type(other)=="table" and #other==self:rangedim() then
+        return translate_cube(self, other, -1)
+    elseif Hypercube.isa(other) and type(self)=="table" and #self==other:rangedim() then
+        return translate_cube(-other, self, 1)
+    else
+        error("Wrong input arguments.")
+    end
 end
 
 function Hypercube:barycentriccoords(y)
@@ -412,97 +488,29 @@ testenv "Hypercube - 3d" do
 
     testset "evaluation" do
         local Cube = Hypercube.new(I, J, K)
-        test [Cube{0,0,0} == vec.new{0,1,2}] 
-        test [Cube{1,1,1} == vec.new{1,3,5}]
+        test [Cube({0,0,0}) == vec.new{0,1,2}] 
+        test [Cube({1,1,1}) == vec.new{1,3,5}]
         test [Cube(Cube:barycentriccoords{0,1,2}) == vec.new{0,1,2}]
     end
+
+    testset "addition / subtraction" do
+        local Cube = Hypercube.new(I, J, K)
+        test [Cube + {0,1,2} == Hypercube.new(I, J+1, K+2)]
+        test [{0,1,2} + Cube == Hypercube.new(I, J+1, K+2)]
+        test [Cube - {0,1,2} == Hypercube.new(I, J-1, K-2)]
+        test [{0,1,2} - Cube == Hypercube.new(-I, -J+1, -K+2)]
+        test [-Cube == Hypercube.new(-I, -J, -K)]
+    end
 end
 
-
-local Pyramid = {}
-Pyramid.__index = Pyramid;
-Pyramid.__metatable = Pyramid;
-
-function Pyramid.isa(t)
-    return getmetatable(t) == Pyramid
-end
-
-Pyramid.new = function(args)
-
-    local base = args.base
-    local apex = args.apex
-
-    --check inputs
-    if base==nil or apex==nil then
-        error("Expected named arguments 'base' and 'apex'")
-    end
-
-    local M = base:dim()+1
-    local N = base:rangedim()
-    
-    if not (type(base)=="table" and Hypercube.isa(base)) then
-        error("Expected named argument 'base' to be a hypercube.")
-    end
-    if not (type(apex)=="table" and #apex==N) then
-        error("Expected named argument 'apex' to be an array of "..N .. " numbers.")
-    end
-    --wrap into a vector if needed
-    if not vec.isa(apex) then
-        apex = vec.new(apex)
-    end
-
-    --dummy struct
-    local pyramid = { }
-
-    --static data
-    pyramid.base = base
-    pyramid.apex = apex
-
-    function pyramid:dim()
-        return self.base:dim()+1
-    end
-
-    function pyramid:height()
-        local x = base:barycentriccoords(apex)
-        local y = base(x)
-        return (apex - y):norm()
-    end
-
-    function pyramid:vol()
-        return self:height() * base:vol() / self:dim()
-    end
-
-    return setmetatable(pyramid, Pyramid)
-end
-
-testenv "Pyramid - 2D" do
-
-    local Point = Point(T, 3)
-
-    --compute hypercube at compile-time
-    local base = Hypercube.new(2, Interval.new(0,1))
-    local apex = vec.new{0,0}
-
-    local P = Pyramid.new{base=base, apex=apex}
-
-    testset "properties" do
-        test [P:dim() == 2]
-        test [P:height() == 2]
-        test [P:vol() == 1]
-    end
-
-end
-
-
-
-local Mapping = terralib.memoize(function(args)
+Hypercube.mapping = terralib.memoize(function(args)
 
     local domain = args.domain
     local origin = args.origin
 
     --check inputs
-    if domain==nil or origin==nil then
-        error("Expected named arguments 'domain' and origin")
+    if domain==nil then
+        error("Expected named argument 'domain'")
     end
 
     local N = domain:rangedim()
@@ -510,34 +518,37 @@ local Mapping = terralib.memoize(function(args)
     if not (type(domain)=="table" and Hypercube.isa(domain)) then
         error("Expected named argument 'domain' to be a hypercube.")
     end
-    if not (type(origin)=="table" and #origin==N) then
-        error("Expected named argument 'origin' to be an array of "..N .. " numbers.")
+    if origin~=nil and not (type(origin)=="table" and #origin==N) then
+        error("Expected optional named argument 'origin' to be an array of "..N .. " numbers.")
     end
-
-    --dummy struct
-    local struct mapping{ }
-
-    --static data
-    mapping.ismapping = true
-    mapping.domain = domain
-    mapping.origin = origin
 
     --generate inverse permutation, and fill A and B with data for linear
     --map: A * X + B, such that [0,1]^N maps to the hypercube
     local A, B = terralib.newlist(), terralib.newlist()
     local A_inv, B_inv = terralib.newlist(), terralib.newlist()
     local D = 0
+    
     for i, v in ipairs(domain.I) do
-        local o = origin[i]
+        local o
         if type(v)=="number" then
-            if v~=o then
-                error("Expected origin["..i.."] = ".. tostring(v))
+            if origin~=nil then 
+                o = origin[i] 
+                if v~=o then
+                    error("Expected origin["..i.."] = ".. tostring(v))
+                end
+            else 
+                o = v 
             end
             A:insert(0)
             B:insert(v)
             A_inv:insert(0)
             B_inv:insert(0)
         elseif Interval.isa(v) then
+            if origin~=nil then 
+                o = origin[i]
+            else 
+                o = v.a
+            end
             local center = 0.5 * (v.a + v.b)
             local signed = (o<=center) and 1 or -1
             A:insert((v.b - v.a) * signed)
@@ -548,12 +559,19 @@ local Mapping = terralib.memoize(function(args)
         end
     end
 
+    --dummy struct
+    local struct mapping{ }
+
+    --static data
+    mapping.ismapping = true
+    mapping.domain = domain
+
     --construct static arrays for linear map 'y = a * x + b'
     --and origin 'o'
+    local vec = vector(T,N)
     local map, invmap = {}, {}
-    map.a = terralib.constant(terralib.new(T[N], A))
-    map.b = terralib.constant(terralib.new(T[N], B))
-    map.o = terralib.constant(terralib.new(T[N], origin))
+    mapping.a = terralib.constant(terralib.new(T[N], A))
+    mapping.b = terralib.constant(terralib.new(T[N], B))
     --construct static arrays for linear inverse map 'x = (1/a) y - b/a'
     invmap.a = terralib.constant(terralib.new(T[N], A_inv))
     invmap.b = terralib.constant(terralib.new(T[N], B_inv))
@@ -567,7 +585,7 @@ local Mapping = terralib.memoize(function(args)
             error("Expected " .. D .. " input arguments.")
         end
         return quote
-            var y = [map.o]
+            var y = [mapping.b]
             escape
                 for i = 1, D do
                     local x = args[i]
@@ -607,8 +625,8 @@ testenv "Mapping - 3d - line" do
     local Line = Hypercube.new(1, Interval.new(2,4), 2)
     
     --compute mappings at compile-time
-    local F = Mapping{domain=Line, origin={1,2,2}}
-    local G = Mapping{domain=Line, origin={1,4,2}}
+    local F = Hypercube.mapping{domain=Line} -- origin={1,2,2}
+    local G = Hypercube.mapping{domain=Line, origin={1,4,2}}
 
     testset "properties" do
         test [F.ismapping]
@@ -667,8 +685,8 @@ testenv "Mapping - 3d - surface" do
     local Surf = Hypercube.new(1, Interval.new(2,4), Interval.new(5,6))
     
     --compute mappings at compile-time
-    local F = Mapping{domain=Surf, origin={1,2,5}}
-    local G = Mapping{domain=Surf, origin={1,4,6}}
+    local F = Hypercube.mapping{domain=Surf} --origin={1,2,5}
+    local G = Hypercube.mapping{domain=Surf, origin={1,4,6}}
 
     testset "properties" do
         test [F.ismapping]
@@ -727,8 +745,8 @@ testenv "Mapping - 3d - volume" do
     local Vol = Hypercube.new(Interval.new(0,1), Interval.new(2,4), Interval.new(5,6))
     
     --compute mappings at compile-time
-    local F = Mapping{domain=Vol, origin={0,2,5}}
-    local G = Mapping{domain=Vol, origin={1,4,6}}
+    local F = Hypercube.mapping{domain=Vol} --origin={0,2,5}
+    local G = Hypercube.mapping{domain=Vol, origin={1,4,6}}
 
     testset "properties" do
         test [F.ismapping]
@@ -775,6 +793,390 @@ testenv "Mapping - 3d - volume" do
         end
         test a._0==1 and a._1==1 and a._2==1
         test b._0==0 and b._1==0 and b._2==0
+    end
+
+end
+
+local Pyramid = {}
+Pyramid.__index = Pyramid;
+Pyramid.__metatable = Pyramid;
+
+function Pyramid.isa(t)
+    return getmetatable(t) == Pyramid
+end
+
+Pyramid.new = function(args)
+
+    local base = args.base
+    local apex = args.apex
+
+    --check inputs
+    if base==nil or apex==nil then
+        error("Expected named arguments 'base' and 'apex'")
+    end
+
+    local M = base:dim()+1
+    local N = base:rangedim()
+    
+    if not (type(base)=="table" and Hypercube.isa(base)) then
+        error("Expected named argument 'base' to be a hypercube.")
+    end
+    if not (type(apex)=="table" and #apex==N) then
+        error("Expected named argument 'apex' to be an array of "..N .. " numbers.")
+    end
+    --wrap into a vector if needed
+    if not vec.isa(apex) then
+        apex = vec.new(apex)
+    end
+
+    --dummy struct
+    local pyramid = { }
+
+    --static data
+    pyramid.base = base
+    pyramid.apex = apex
+
+    function pyramid:dim()
+        return self.base:dim()+1
+    end
+
+    function pyramid:rangedim()
+        return self.base:rangedim()
+    end
+
+    function pyramid:height()
+        local x = base:barycentriccoords(apex)
+        local y = base(x)
+        return (apex - y):norm()
+    end
+
+    function pyramid:vol()
+        return self:height() * base:vol() / self:dim()
+    end
+
+    return setmetatable(pyramid, Pyramid)
+end
+
+function Pyramid:__tostring()
+    return "Pyramid {base = "..tostring(self.base) ..", apex = "..tostring(self.apex).."}"
+end
+
+Pyramid.decomposition = function(args)
+    local cube = args.cube
+    local apex = args.apex
+    --check inputs
+    if cube==nil or apex==nil then
+        error("Expected named arguments 'cube' and 'apex'")
+    end
+    --check cube
+    if not Hypercube.isa(cube) then
+        error("Expected a hypercube.")
+    end
+    local D = cube:dim()
+    local N = cube:rangedim()
+    --check apex
+    if type(apex)~="table" or #apex~=N then
+        error("Expected an array of "..tostring(N) .. " real numbers.")
+    end
+    --translate cube 
+    local cube = cube - apex
+    local apex = apex
+    --static variable
+    local i = 0
+    return function()
+        i = i+1
+        if i <= D then   
+            local k = cube.perm[i]
+            local I = table.copy(cube.I)
+            if I[k].a==0 then 
+                I[k] = I[k].b
+            elseif I.b==0 then
+                I[k] = I[k].a
+            else
+                error("The apex should be on the boundary of the product space.")
+            end
+            local base = Hypercube.new(unpack(I)) + apex
+            local P = Pyramid.new{base = base, apex = apex}
+            return P
+        end
+    end
+end
+
+Pyramid.mapping = terralib.memoize(function(args)
+
+    local domain = args.domain
+
+    --check inputs
+    if domain==nil then
+        error("Expected named argument 'domain'.")
+    end
+    if not (type(domain)=="table" and Pyramid.isa(domain)) then
+        error("Expected named argument 'domain' to be a pyramid.")
+    end
+
+    local D = domain:dim()
+    local N = domain:rangedim()
+
+    local base = terralib.constant(terralib.new(Hypercube.mapping{domain=domain.base}))
+    local apex = terralib.constant(terralib.new(T[N], domain.apex))
+
+    --dummy struct
+    local struct mapping{ }
+
+    --static data
+    mapping.ismapping = true
+    mapping.domain = domain
+
+    --convex combination using simd instructions
+    local vec = vector(T,N)
+    local eval = terra(s : T, a : &vec, b : &vec)
+        return (1.-s) * @a + s * @b
+    end
+
+    local extractargs = function(...)
+        local args = terralib.newlist{...}
+        if #args~=D then
+            error("Expected ".. tostring(D) .. " input arguments.")
+        end
+        local x = terralib.newlist{}
+        for i=1,D-1 do
+            x:insert(args[i])
+        end
+        local s = args[D]
+        return x, s
+    end
+
+    mapping.metamethods.__apply = macro(function(self,...) 
+        local x, s = extractargs(...)
+        return quote
+            var b = base(x)
+            var y = eval(s, [&vec](&apex), [&vec](&b))
+        in
+            [&T](&y)
+        end
+    end)
+
+    mapping.methods.vol = macro(function(self, ...)
+        local x, s = extractargs(...)
+        return `tmath.pow([T](s),D-1) * [domain.base:vol()] * [domain:height()] 
+    end)
+
+    return mapping
+end)
+
+testenv "Pyramid - 2D" do
+
+    local base = Hypercube.new(3, Interval.new(0,1))
+    local apex = vec.new{1,0}
+
+    local P = Pyramid.new{base=base, apex=apex}
+
+    testset "properties" do
+        test [P:dim() == 2]
+        test [P:height() == 2]
+        test [P:vol() == 1]
+    end
+
+    testset "decomposition" do
+        local cube = Hypercube.new(Interval.new(0,1), Interval.new(0,1))
+        local area = 0.0
+        local iter = Pyramid.decomposition{cube=cube, apex={0,0}}
+        for P in iter do
+            area = area + P:vol()
+        end
+        test [area == 1]
+    end
+
+    local mapping = Pyramid.mapping{domain=P}
+
+    testset "evaluation" do
+        terracode
+            var p : mapping
+            var a = p(0,0)
+            var b = p(0,1)
+            var c = p(1,1)
+        end
+        test a[0]==1 and a[1]==0
+        test b[0]==3 and b[1]==0
+        test c[0]==3 and c[1]==1
+    end
+
+    testset "jacobian" do
+        terracode
+            var p : mapping
+            var va = p:vol(0,0)
+            var vb = p:vol(0,1)
+            var vc = p:vol(1,1)
+        end
+        test va==0
+        test vb==2
+        test vc==2
+    end
+
+end
+
+testenv "Pyramid - 3D" do
+
+    --compute hypercube at compile-time
+    local base = Hypercube.new(4, Interval.new(0,1), Interval.new(0,1))
+    local apex = vec.new{1,1,1}
+
+    local P = Pyramid.new{base=base, apex=apex}
+
+    testset "properties" do
+        test [P:dim() == 3]
+        test [P:height() == 3]
+        test [P:vol() == 1]
+    end
+
+    testset "decomposition" do
+        local cube = Hypercube.new(Interval.new(1,2), Interval.new(1,2), Interval.new(1,2))
+        local vol = 0.0
+        local iter = Pyramid.decomposition{cube=cube, apex={1,1,1}}
+        for P in iter do
+            vol = vol + P:vol()
+        end
+        test [math.abs(vol -1) < 1e-12]
+    end
+
+    local mapping = Pyramid.mapping{domain=P}
+
+    testset "evaluation" do
+        terracode
+            var p : mapping
+            var a = p(0,0,0)
+            var b = p(0,0,1)
+            var c = p(1,1,1)
+        end
+        test a[0]==1 and a[1]==1 and a[2]==1
+        test b[0]==4 and b[1]==0 and b[2]==0
+        test c[0]==4 and c[1]==1 and c[2]==1
+    end
+
+    testset "jacobian" do
+        terracode
+            var p : mapping
+            var va = p:vol(0,0,0)
+            var vb = p:vol(0,0,1)
+            var vc = p:vol(1,1,1)
+        end
+        test va==0
+        test vb==3
+        test vc==3
+    end
+
+end
+
+
+
+local ProductPair = {}
+ProductPair.__index = ProductPair;
+ProductPair.__metatable = ProductPair;
+
+function ProductPair.isa(t)
+    return getmetatable(t) == ProductPair
+end
+
+ProductPair.new = function(A, B)
+
+    --check inputs
+    if A==nil or B==nil then
+        error("Expected named arguments 'A' and 'B'")
+    end
+    if not (Hypercube.isa(A) and Hypercube.isa(B)) then
+        error("Expected named arguments 'A' and 'B' to be of type hypercube.")
+    end
+    if A:rangedim()~=B:rangedim() then
+       error("Range dimensions of A and B are inconsistent.")
+    end
+    local C = Hypercube.intersection(A, B)
+    if C==nil or C:dim()~=0 then
+        error("Invalid product pair.")
+    end
+    local V = A * B
+    local N = A:rangedim()
+    if V==nil or V:dim()~=N then
+        error("Invalid product pair.")
+    end
+
+    --dummy struct
+    local productpair = { }
+
+    --static data
+    productpair.A = A
+    productpair.B = B
+
+    function productpair:dim()
+        return A:dim(), B:dim()
+    end
+
+    function productpair:rangedim()
+        return N
+    end
+
+    return setmetatable(productpair, ProductPair)
+end
+
+function ProductPair:__tostring()
+    return "ProductPair {A = "..tostring(self.A) ..", B = "..tostring(self.B).."}"
+end
+
+ProductPair.mapping = terralib.memoize(function(args)
+
+    local domain = args.domain
+
+    --check inputs
+    if domain==nil then
+        error("Expected named argument 'domain'.")
+    end
+    if not (type(domain)=="table" and ProductPair.isa(domain)) then
+        error("Expected named argument 'domain' to be a 'ProductPair'.")
+    end
+
+    local D1, D2 = domain:dim()
+    local N = domain:rangedim()
+
+    local A = terralib.constant(terralib.new(Hypercube.mapping{domain=domain.A}))
+    local B = terralib.constant(terralib.new(Hypercube.mapping{domain=domain.B}))
+
+    --dummy struct
+    local struct mapping{ }
+
+    --static data
+    mapping.ismapping = true
+    mapping.domain = domain
+
+    mapping.metamethods.__apply = terra(x_1 : ntuple(T,D1), x_2 : ntuple(T,D2))
+        var y_1, y_2 = A(x_1), B(x_2)
+        escape
+            local I = domain.A.I
+            for i=1,N do
+                if not Interval.isa(I[i]) then
+                    emit quote y_1[i] = y_2[i] end
+                end
+            end
+        end
+        return y_1
+    end
+
+    mapping.methods.vol = terra(x_1 : ntuple(T,D1), x_2 : ntuple(T,D2))
+        return A:vol(x_1) * B:vol(x_2)
+    end
+
+    return mapping
+end)
+
+testenv "ProductPair - 3d" do
+
+    local I, J = Interval.new(0,1), Interval.new(1,2)
+    
+    testset "intersection" do
+        local A, B = Hypercube.new(I, I, I),  Hypercube.new(J, I, I)
+        local C = Hypercube.intersection(A, B)
+        local x = ProductPair.new(A / C, C)
+        local y = ProductPair.new(B / C, C)
+        test [x~=nil and x.A:dim()==1 and x.B:dim()==2]
+        test [y~=nil and y.A:dim()==1 and y.B:dim()==2]
     end
 
 end
