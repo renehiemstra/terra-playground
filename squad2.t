@@ -1188,9 +1188,13 @@ testenv "ProductPair - 3d" do
             var prod_b : ProductPair.mapping{domain=P_b, origin={1,1,1}}
             var y_a = prod_a({}, {0.1,0.2,0.3})
             var y_b = prod_b({}, {0.1,0.2,0.3})
+            var vol_a = prod_a:vol({}, {0.1,0.2,0.3})
+            var vol_b = prod_b:vol({}, {0.1,0.2,0.3})
         end
         test y_a[0]==0.9 and y_a[1]==0.8 and y_a[2]==0.7
         test y_b[0]==1.1 and y_b[1]==1.2 and y_b[2]==1.3
+        test vol_a==1
+        test vol_b==1
     end
 
     testset "1-dimensional intersection" do
@@ -1203,9 +1207,13 @@ testenv "ProductPair - 3d" do
             var prod_b : ProductPair.mapping{domain=P_b, origin={1,1,0}}
             var y_a = prod_a({0.1}, {0.2,0.3})
             var y_b = prod_b({0.1}, {0.2,0.3})
+            var vol_a = prod_a:vol({0.1}, {0.2,0.3})
+            var vol_b = prod_b:vol({0.1}, {0.2,0.3})
         end
         test y_a[0]==0.8 and y_a[1]==0.7 and y_a[2]==0.1
         test y_b[0]==1.2 and y_b[1]==1.3 and y_b[2]==0.1
+        test vol_a==1
+        test vol_b==1
     end
     local K, L = Interval.new(1,3), Interval.new(3,4)
     
@@ -1221,13 +1229,17 @@ testenv "ProductPair - 3d" do
             var a_1 = prod_a({0.2,0.3},{1.0})
             var b_0 = prod_b({0.2,0.3},{0.0})
             var b_1 = prod_b({0.2,0.3},{1.0})
+            var vol_a = prod_a:vol({0.2,0.3},{1.0})
+            var vol_b = prod_b:vol({0.2,0.3},{1.0})
         end
         --points a
         test a_0[0]==3.0 and a_0[1]==0.2 and a_0[2]==0.3
         test a_1[0]==1.0 and a_1[1]==0.2 and a_1[2]==0.3
+        test vol_a==2
         --points b
         test b_0[0]==3.0 and b_0[1]==0.2 and b_0[2]==0.3
         test b_1[0]==4.0 and b_1[1]==0.2 and b_1[2]==0.3
+        test vol_b==1
     end
 
     testset "3-dimensional intersection" do
@@ -1236,8 +1248,10 @@ testenv "ProductPair - 3d" do
         terracode
             var prod : ProductPair.mapping{domain=P, origin={1,0,1}}
             var a = prod({0.5,0.5,0.5},{})
+            var vol = prod:vol({0.5,0.5,0.5},{})
         end
         test a[0]==2.0 and a[1]==0.5 and a[2]==1.5
+        test vol==2 
     end
 
 end
