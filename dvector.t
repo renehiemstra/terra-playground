@@ -2,10 +2,11 @@ local alloc = require("alloc")
 local interface = require("interface")
 local stack = require("stack")
 local err = require("assert")
+local rn = require("range")
 
 local Allocator = alloc.Allocator
 local size_t = uint64
-
+local u8 = uint8
 
 local VectorBase = terralib.memoize(function(V, T)
 
@@ -119,6 +120,34 @@ local DynamicVector = terralib.memoize(function(T)
     local struct vector(Base){
         data: S
     }
+
+    vector.methods.getfirst = macro(function(self)
+        return quote 
+            var state = self.data.ptr
+        in
+            state, @state
+        end
+    end)
+
+    vector.methods.getnext = macro(function(self, state)
+        return quote 
+            state = state + 1
+        in
+            @state
+        end
+    end)
+
+    vector.methods.islast = macro(function(self, state, value)
+        return quote 
+            var terminate = ([&u8](state) == [&u8](self.data.alloc))
+        in
+            terminate
+        end
+    end)
+
+    --add range metamethods
+    rn.Base(vector, int64, T)
+
 
     return vector
 end)

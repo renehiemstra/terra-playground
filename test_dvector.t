@@ -1,5 +1,6 @@
 import "terratest/terratest"
 
+local rn = require('range')
 local Alloc = require('alloc')
 local DVector = require('dvector')
 
@@ -57,6 +58,17 @@ testenv "DynamicVector" do
         test v:get(0) == 0.0
         test v:get(1) == 0.5
         test v:get(2) == 1.1
+    end
+
+    testset "iterate" do
+        terracode
+            var vec = dvector.from(&alloc, 1.0, 2.0, 3.0)
+            var s = 0.0
+            for v in vec do
+                s = s + v
+            end
+        end
+        test s == 6.0
     end
 
 end
