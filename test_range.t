@@ -426,7 +426,8 @@ testenv "range combiners" do
         terracode
             var U = stack.new(&alloc, 10)
             for u in rn.product(unitrange{1, 4}) do
-                U:push(u)
+                io.printf("value %d\n", u._0)
+                U:push(u._0)
             end
         end
         test U:size()==3
@@ -435,13 +436,15 @@ testenv "range combiners" do
         test U:get(2)==3
     end
 
+
     testset "product - 2" do
         terracode
             var U = stack.new(&alloc, 10)
             var V = stack.new(&alloc, 10)
-            for u,v in rn.product(unitrange{1, 4}, unitrange{2, 4}) do
-                U:push(u)
-                V:push(v)
+            for t in rn.product(unitrange{1, 4}, unitrange{2, 4}) do
+                U:push(t._0)
+                V:push(t._1)
+                io.printf("value (%d, %d) \n", t._0, t._1)
             end
         end
         test U:size()==6 and V:size()==6
@@ -458,10 +461,10 @@ testenv "range combiners" do
             var U = stack.new(&alloc, 16)
             var V = stack.new(&alloc, 16)
             var W = stack.new(&alloc, 16)
-            for u,v,w in rn.product(unitrange{1, 4}, unitrange{2, 4}, unitrange{3, 5}) do
-                U:push(u)
-                V:push(v)
-                W:push(w)
+            for t in rn.product(unitrange{1, 4}, unitrange{2, 4}, unitrange{3, 5}) do
+                U:push(t._0)
+                V:push(t._1)
+                W:push(t._2)
             end
         end
         test U:size()==12
