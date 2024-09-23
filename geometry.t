@@ -3,7 +3,7 @@
 --
 -- SPDX-License-Identifier: MIT
 
-local vec = require("vector")
+local vec = require("luavector")
 local tmath = require("mathfuns")
 
 local size_t = uint64

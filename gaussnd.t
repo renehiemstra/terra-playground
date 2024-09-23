@@ -8,8 +8,6 @@ local alloc = require('alloc')
 local gauss = require("gauss")
 local rn = require("range")
 
-
-
 local Allocator = alloc.Allocator
 local DefaultAllocator =  alloc.DefaultAllocator()
 
