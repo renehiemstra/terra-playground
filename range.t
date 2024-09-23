@@ -78,7 +78,6 @@ end
 local __getnextvalue_that_satisfies_predicate = macro(function(range, state, value, predicate, condition)
     local condition = condition or false
     local predicate_t = predicate.tree.type
-    print("by ref" .. tostring(predicate_t.byreference))
     if predicate_t.byreference then
         return quote
             while predicate(value)==condition do
@@ -564,7 +563,7 @@ local ProductRange = function(Ranges)
 
     local struct product_state{
         istate : S
-        ivalue : T
+        ivalue : &T
     }
     product_state:complete()
 
@@ -589,38 +588,37 @@ local ProductRange = function(Ranges)
 
     terra combirange:getfirst()
         var state : product_state
+        var value : T
+        state.ivalue = &value
         escape
             for k=0, D-1 do
-                emit quote [getfirst(`self, `state.istate, `state.ivalue, k)] end
+                emit quote [getfirst(`self, `state.istate, `value, k)] end
             end
         end
-        return state, state.ivalue
+        return state, value
     end
 
     terra combirange:getnext(state : &product_state)
-        [getnext(`self, `state.istate, `state.ivalue, 0)]
-        return state.ivalue
+        [getnext(`self, `state.istate, `@state.ivalue, 0)]
+        return @state.ivalue
     end
 
     terra combirange:islast(state : &product_state, value : &T)
+        state.ivalue = value
         escape
             --loop over each of the D ranges
             for k=0, D-2 do
-                local s1 = "_"..tostring(k)
-                local s2 = "_"..tostring(k+1)
                 emit quote
-                    if [islast(`self, `state.istate, `state.ivalue, k)] then
-                        [getfirst(`self, `state.istate, `state.ivalue, k)]
-                        [getnext(`self, `state.istate, `state.ivalue, k+1)]     --increment range k+1
-                        value.[s1] = state.ivalue.[s1]
-                        value.[s2] = state.ivalue.[s2]
+                    if [islast(`self, `state.istate, `@value, k)] then
+                        [getfirst(`self, `state.istate, `@value, k)]
+                        [getnext(`self, `state.istate, `@value, k+1)]     --increment range k+1
                     else
                         return false
                     end
                 end
             end
         end
-        return [islast(`self, `state.istate, `state.ivalue, D-1)]
+        return [islast(`self, `state.istate, `@value, D-1)]
     end
 
     --add metamethods
