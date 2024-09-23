@@ -381,7 +381,7 @@ testenv "range combiners" do
         terracode
             var U = stack.new(&alloc, 10)
             for u in rn.zip(unitrange{1, 4}) do
-                U:push(u)
+                U:push(u._0)
             end
         end
         test U:size()==3
@@ -394,9 +394,9 @@ testenv "range combiners" do
         terracode
             var U = stack.new(&alloc, 10)
             var V = stack.new(&alloc, 10)
-            for u,v in rn.zip(unitrange{1, 4}, unitrange{2, 6}) do
-                U:push(u)
-                V:push(v)
+            for t in rn.zip(unitrange{1, 4}, unitrange{2, 6}) do
+                U:push(t._0)
+                V:push(t._1)
             end
         end
         test U:size()==3 and V:size()==3
@@ -410,10 +410,10 @@ testenv "range combiners" do
             var U = stack.new(&alloc, 10)
             var V = stack.new(&alloc, 10)
             var W = stack.new(&alloc, 10)
-            for u,v,w in rn.zip(unitrange{1, 4}, unitrange{2, 6}, unitrange{3, 7}) do
-                U:push(u)
-                V:push(v)
-                W:push(w)
+            for t in rn.zip(unitrange{1, 4}, unitrange{2, 6}, unitrange{3, 7}) do
+                U:push(t._0)
+                V:push(t._1)
+                W:push(t._2)
             end
         end
         test U:size()==3 and V:size()==3 and W:size()==3

@@ -630,51 +630,74 @@ end
 local ZipRange = function(Ranges)
   
     local combirange = newcombiner(Ranges, "zip")
+    local D = #Ranges
 
-    --I've used explicit for loops, rather than recursion.
-    --Recursion requires definition of the loop variables in
-    --terms of symbols, which require a type. Maybe add as 
-    --a type-trait?
-    combirange.metamethods.__for = function(self,body)
-        local D = #Ranges
-        if D > 3 then
-            error("Zip range is only implemented for D=1,2,3.") 
-            -- right now only implemented for D=1,2,3
-            --ToDo: eventially implement using 'getfirst', 'getnext', 'islast'?
-        end
-        if D==1 then
-            return quote
-                var iter = self
-                for u in iter._0 do
-                    [body(u)]
-                end
-            end
-        elseif D==2 then
-            return quote
-                var iter = self
-                var state_0, value_0 = iter._0:getfirst()
-                var state_1, value_1 = iter._1:getfirst()
-                while not (iter._0:islast(&state_0, &value_0) or iter._1:islast(&state_1, &value_1)) do
-                    [body(value_0, value_1)]
-                    value_0 = iter._0:getnext(&state_0)
-                    value_1 = iter._1:getnext(&state_1)
-                end
-            end
-        elseif D==3 then
-            return quote
-                var iter = self
-                var state_0, value_0 = iter._0:getfirst()
-                var state_1, value_1 = iter._1:getfirst()
-                var state_2, value_2 = iter._2:getfirst()
-                while not (iter._0:islast(&state_0, &value_0) or iter._1:islast(&state_1, &value_1) or iter._2:islast(&state_2, &value_2)) do
-                    [body(value_0, value_1, value_2)]
-                    value_0 = iter._0:getnext(&state_0)
-                    value_1 = iter._1:getnext(&state_1)
-                    value_2 = iter._2:getnext(&state_2)
-                end
-            end
+    --get range types
+    local value_t = terralib.newlist{}
+    local state_t = terralib.newlist{}
+    for i,rn in ipairs(Ranges) do
+        value_t:insert(rn.value_t)
+        state_t:insert(rn.state_t)
+    end
+    local S = tuple(unpack(state_t))
+    local T = tuple(unpack(value_t))
+
+    local getfirst = function(self, state, value, k) 
+        local s = "_"..tostring(k)
+        return quote
+            state.[s], value.[s] = self.[s]:getfirst()
         end
     end
+
+    local getnext = function(self, state, value, k) 
+        local s = "_"..tostring(k)
+        return quote
+            value.[s] = self.[s]:getnext(&state.[s])
+        end
+    end
+
+    local islast = function(self, state, value, k)
+        local s = "_"..tostring(k)
+        return `self.[s]:islast(&state.[s], &value.[s])
+    end
+
+    terra combirange:getfirst()
+        var state : S
+        var value : T
+        escape
+            for k=0, D-1 do
+                emit quote [getfirst(`self, `state, `value, k)] end
+            end
+        end
+        return state, value
+    end
+
+    terra combirange:getnext(state : &S)
+        var value : T
+        escape
+            for k=0, D-1 do
+                emit quote [getnext(`self, `@state, `value, k)] end
+            end
+        end
+        return value
+    end
+
+    terra combirange:islast(state : &S, value : &T)
+        escape
+            --loop over each of the D ranges
+            for k=0, D-1 do
+                emit quote
+                    if [islast(`self, `@state, `@value, k)] then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+    
+    --add metamethods
+    RangeBase(combirange, S, T)
 
     return combirange
 end
