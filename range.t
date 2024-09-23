@@ -527,22 +527,65 @@ end
 local JoinRange = function(Ranges)
 
     local combirange = newcombiner(Ranges, "joiner")
+    local D = #Ranges
 
-    combirange.metamethods.__for = function(range,body)
-        local D = #Ranges
-        local stmts = terralib.newlist{}
-        for k = 0, D-1 do
-            local field = "_"..tostring(k)
-            stmts:insert(quote
-                for v in range.[field] do
-                    [body(v)]
+    --get range types
+    local T = Ranges[1].value_t
+    local S = Ranges[1].state_t
+    for i,rn in ipairs(Ranges) do
+        assert(rn.value_t == T and rn.state_t==S)
+    end
+
+    local struct istate{
+        state : S
+        index : uint8
+    }
+
+    terra combirange:getfirst()
+        var state, value = self._0:getfirst()
+        return istate{state, 0}, value
+    end
+
+    terra combirange:getnext(state : &istate)
+        escape
+            for k=0,D-1 do
+                local s = "_"..tostring(k)
+                emit quote
+                    if state.index==[k] then
+                        return self.[s]:getnext(&state.state)
+                    end
                 end
-            end)
-        end
-        return quote
-            [stmts]
+            end
         end
     end
+
+    terra combirange:islast(state : &istate, value : &T)
+        escape
+            for k=0,D-2 do
+                local s1 = "_"..tostring(k)
+                local s2 = "_"..tostring(k+1)
+                emit quote
+                    if state.index==[k] then
+                        if self.[s1]:islast(&state.state, value) then
+                            state.index = state.index+1
+                            state.state, @value = self.[s2]:getfirst()
+                            
+                        end
+                        return false
+                    end
+                end
+            end
+            local s = "_"..tostring(D-1)
+            emit quote
+                if state.index==[D-1] then
+                    return self.[s]:islast(&state.state, value)
+                end
+            end
+        end
+    end
+
+    --add metamethods
+    RangeBase(combirange, istate, T)
 
     return combirange
 end
@@ -561,11 +604,11 @@ local ProductRange = function(Ranges)
     local S = tuple(unpack(state_t))
     local T = tuple(unpack(value_t))
 
-    local struct product_state{
-        istate : S
-        ivalue : &T
+    local struct istate{
+        state : S
+        value : &T
     }
-    product_state:complete()
+    istate:complete()
 
     local getfirst = function(self, state, value, k) 
         local s = "_"..tostring(k)
@@ -587,42 +630,42 @@ local ProductRange = function(Ranges)
     end
 
     terra combirange:getfirst()
-        var state : product_state
+        var state : istate
         var value : T
-        state.ivalue = &value
+        state.value = &value
         escape
             for k=0, D-1 do
-                emit quote [getfirst(`self, `state.istate, `value, k)] end
+                emit quote [getfirst(`self, `state.state, `value, k)] end
             end
         end
         return state, value
     end
 
-    terra combirange:getnext(state : &product_state)
-        [getnext(`self, `state.istate, `@state.ivalue, 0)]
-        return @state.ivalue
+    terra combirange:getnext(state : &istate)
+        [getnext(`self, `state.state, `@state.value, 0)]
+        return @state.value
     end
 
-    terra combirange:islast(state : &product_state, value : &T)
-        state.ivalue = value
+    terra combirange:islast(state : &istate, value : &T)
+        state.value = value
         escape
             --loop over each of the D ranges
             for k=0, D-2 do
                 emit quote
-                    if [islast(`self, `state.istate, `@value, k)] then
-                        [getfirst(`self, `state.istate, `@value, k)]
-                        [getnext(`self, `state.istate, `@value, k+1)]     --increment range k+1
+                    if [islast(`self, `state.state, `@value, k)] then
+                        [getfirst(`self, `state.state, `@value, k)]
+                        [getnext(`self, `state.state, `@value, k+1)]     --increment range k+1
                     else
                         return false
                     end
                 end
             end
         end
-        return [islast(`self, `state.istate, `@value, D-1)]
+        return [islast(`self, `state.state, `@value, D-1)]
     end
 
     --add metamethods
-    RangeBase(combirange, product_state, T)
+    RangeBase(combirange, istate, T)
 
     return combirange
 end

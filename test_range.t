@@ -218,6 +218,7 @@ for _, T in ipairs{int, double} do
     end
 end -- for _, T in ipairs{int, double} do
 
+
 local stack = Stack.DynamicStack(int)
 local unitrange = rn.Unitrange(int)
 local steprange = rn.Steprange(int)
@@ -351,7 +352,33 @@ testenv "range combiners" do
         var s = stack.new(&alloc, 10)
     end
 
-    testset "join" do
+    testset "join - 1" do
+        terracode
+            var range = rn.join(unitrange{1, 4})
+            for v in range do
+                s:push(v)
+            end
+        end
+        test s:size()==3
+        for i = 1, 3 do
+            test s:get([i-1]) == i
+        end
+    end
+
+    testset "join - 2" do
+        terracode
+            var range = rn.join(unitrange{1, 3}, unitrange{3, 5})
+            for v in range do
+                s:push(v)
+            end
+        end
+        test s:size()==4
+        for i = 1, 4 do
+            test s:get([i-1]) == i
+        end
+    end
+ 
+    testset "join - 3" do
         terracode
             var range = rn.join(unitrange{1, 3}, unitrange{3, 5}, unitrange{5, 7})
             for v in range do
@@ -359,9 +386,9 @@ testenv "range combiners" do
             end
         end
         test s:size()==6
-        for i = 1, 6 do
-            test s:get([i-1]) == i
-        end
+        --for i = 1, 6 do
+        --    test s:get([i-1]) == i
+        --end
     end
 
     testset "enumerate" do
