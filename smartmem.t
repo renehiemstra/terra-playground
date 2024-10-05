@@ -229,7 +229,7 @@ local SmartBlock = terralib.memoize(function(T)
         end
 
         terra iterator:getvalue()
-            return @self.ptr
+            return self.ptr
         end
 
         terra iterator:next()
@@ -241,7 +241,7 @@ local SmartBlock = terralib.memoize(function(T)
         end
         
         block.iterator = iterator
-        range.Base(block, iterator, T)
+        range.Base(block, iterator, &T)
 
         --declaring __dtor for use in implementation below
         terra block.methods.__dtor :: {&block} -> {}

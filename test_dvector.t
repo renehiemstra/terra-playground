@@ -118,12 +118,12 @@ for _, S in pairs({int, uint, int64, uint64, float, double, float128, float1024}
                 y.size = 4 / y.inc
                 var sumx: T = 0
                 for xx in x do
-                    sumx = sumx + xx
+                    sumx = sumx + @xx
                 end
 
                 var prody: T = 1
                 for yy in y do
-                    prody = prody * yy
+                    prody = prody * @yy
                 end
             end
 

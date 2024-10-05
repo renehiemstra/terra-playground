@@ -130,7 +130,7 @@ local DynamicVector = terralib.memoize(function(T)
     end
 
     terra iterator:getvalue()
-        return @self.ptr
+        return self.ptr
     end
 
     terra iterator:next()
@@ -141,7 +141,7 @@ local DynamicVector = terralib.memoize(function(T)
         return (self.ptr - self.parent.data.ptr) < self.parent.size * self.parent.inc
     end
 
-    range.Base(V, iterator, T)
+    range.Base(V, iterator, &T)
 
     return V
 end)

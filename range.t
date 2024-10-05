@@ -74,23 +74,13 @@ local RangeBase = function(Range, iterator_t, T)
         end
     end)
 
-    --always extract a value type into the body of the loop
-    local extract = function(value) 
-        if value.type:ispointer() then
-            return `@value
-        else
-            return `value
-        end
-    end
-
     --__for is generated for iterators
     Range.metamethods.__for = function(self,body)
         return quote
             var range = self
             var iter = range:getiterator()
             while iter:isvalid() do             --while not at the end
-                var value = iter:getvalue()     --get value
-                [body(byvalue(value))]          --run body of loop
+                [body(`iter:getvalue())]        --get value and run body of loop
                 iter:next()                     --increment state
             end
         end
@@ -102,7 +92,7 @@ local RangeBase = function(Range, iterator_t, T)
     Range.templates.collect[{&Range.Self, &Stacker} -> {}] = function(Self, Container)
         return terra(self : Self, container : Container)
             for v in self do
-                container:push(v)
+                container:push([byvalue(v)])
             end
         end
     end
@@ -112,7 +102,7 @@ local RangeBase = function(Range, iterator_t, T)
         return terra(self : Self, container : Container)
             var i = 0
             for v in self do
-                container:set(i, v)
+                container:set(i, [byvalue(v)])
                 i = i + 1
             end
         end
@@ -122,7 +112,7 @@ local RangeBase = function(Range, iterator_t, T)
     Range.templates.collect[{&Range.Self, &Sequence} -> {}] = function(Self, Container)
         return terra(self : Self, container : Container)
             for v in self do
-                container:push(v)
+                container:push([byvalue(v)])
             end
         end
     end
@@ -929,7 +919,7 @@ return {
     Base = RangeBase,
     Unitrange = Unitrange,
     Steprange = Steprange,
-    transform = transform,    
+    transform = transform,
     filter = filter,
     take = take,
     drop = drop, 

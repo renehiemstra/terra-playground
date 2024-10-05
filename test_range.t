@@ -8,6 +8,7 @@ import "terratest/terratest"
 local Alloc = require("alloc")
 local rn = require("range")
 local Stack = require("example_stack_heap")
+local io = terralib.includec("stdio.h")
 
 local DefaultAllocator =  Alloc.DefaultAllocator()
 
@@ -56,6 +57,19 @@ for _, T in ipairs{int, double} do
             test s:get(2)==3 and t:get(2)==3
         end
 
+        testset "mutate block __for loop" do
+            terracode
+                var x : doubles = alloc:allocate(sizeof(double), 3)
+                for i,xx in rn.enumerate(x) do
+                    @xx = i+1
+                end
+            end
+            test x:isempty() == false
+            test x:size() == 3
+            test x:get(0) == 1.0
+            test x:get(1) == 2.0
+            test x:get(2) == 3.0
+        end
     end
 
     testenv(T) "linear ranges - not including last element" do
@@ -102,7 +116,6 @@ for _, T in ipairs{int, double} do
             test r(2)==5
         end
 
-
         testset "steprange - backward step=1" do
             terracode
                 var r = steprange.new(1, -2, -1)
@@ -117,7 +130,6 @@ for _, T in ipairs{int, double} do
             test r(1)==0
             test r(2)==-1
         end
-
 
         testset "steprange - backward step=2, %0" do
             terracode
