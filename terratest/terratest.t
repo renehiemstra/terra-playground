@@ -243,7 +243,6 @@ local function process_test(self, lex)
     --open test terra statement
     local testtoken = lex:expect("test")
     local testexpr = lex:terraexpr()    --extract the test statement
-    local luaexprs = lex:luastats()     --give control back to lua (since `test` has no `end`)
     --return env-function
     return function(envfun)
         local env = envfun()
@@ -290,7 +289,6 @@ local function process_test(self, lex)
             local ex = testexpr(env)
             self.terrastmts["scope2"]:insert(quote update_test_counter(env, process_test_expr(ex)) end)
         end
-    	return luaexprs(env)
     end  
 end
 
