@@ -12,13 +12,18 @@ local C = terralib.includecstring [[
 
 local S = {}
 
-S.assert = macro(function(condition)
+S.assert = macro(function(condition, message)
     local loc = condition.tree.filename..":"..condition.tree.linenumber
     return quote
-	    if not condition then
-	      C.printf("%s: assertion failed!\n", loc)
-    	  C.abort()
-	    end -- if
+        if not condition then
+            C.printf("%s: assertion failed!\n\n", loc)
+            escape 
+                if message then
+                    emit quote C.printf("%s\n\n", message) end
+                end
+            end
+            C.abort()
+        end -- if
     end -- quote
 end) -- macro
 
