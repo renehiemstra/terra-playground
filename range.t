@@ -3,13 +3,13 @@
 --
 -- SPDX-License-Identifier: MIT
 
+import "terraform"
+
 local base = require("base")
 local concept = require("concept")
 local template = require("template")
 local lambda = require("lambdas")
 local err = require("assert")
-
-import "terraform"
 
 local size_t = uint64
 
@@ -615,12 +615,20 @@ end
 --factory function for range combiners
 local combiner_factory = function(Combiner)
     local combiner = macro(function(...)
-        local ranges = terralib.newlist{...}
-        local range_types = terralib.newlist{}
-        for i,rn in ipairs(ranges) do
-            range_types:insert(rn.tree.type)
+        --take all arguments
+        local args = terralib.newlist{...}
+        local N = #args
+        --filter between ranges and options
+        local ranges = args:filter(function(v) return v:gettype().isrange end)
+        local options
+        if not args[N]:gettype().isrange then
+            options = args[N]:asvalue()
         end
-        local combirange = Combiner(range_types)
+        --get range types
+        local range_types = ranges:map(function(v) return v:gettype() end)
+        --construct the combirange type and instantiate 
+        --terra obj
+        local combirange = Combiner(range_types, options)
         return quote
             var range = combirange{[ranges]}
         in
@@ -808,14 +816,22 @@ local ZipRange = function(Ranges)
     return zipper
 end
 
-local ProductRange = function(Ranges)
-  
+local ProductRange = function(Ranges, options)
+
+    --order is a sequence of numbers denoting the order in which the
+    --product iterator iterates.
+
     local product = newcombiner(Ranges, "product")
     --add methods, staticmethods and templates tablet and template fallback mechanism 
     --allowing concept-based function overloading at compile-time
     base.AbstractBase(product)
     local D = #Ranges
+    --default ordering is {D, D-1, ... , 1}
+    --this default is chosen to support array indexing in row-major format.
+    local order = options and options.order or Ranges:mapi(function(i,v) return D+1-i end)
+    assert(type(order) == "table" and #order == D)
 
+    --local type traits
     local state_t = terralib.newlist{}
     local value_t = terralib.newlist{}
     for i,rn in ipairs(Ranges) do
@@ -825,6 +841,7 @@ local ProductRange = function(Ranges)
     local iterator_t = tuple(unpack(state_t))
     local T = tuple(unpack(value_t))
 
+    --iterator definition
     local struct iterator{
         range : &product 
         state : iterator_t
@@ -852,8 +869,8 @@ local ProductRange = function(Ranges)
 
     terra iterator:next()
         escape
-            for k=0, D-2 do
-                local s = "_"..tostring(k)
+            for k=1, D-1 do
+                local s = "_"..tostring(order[k]-1)
                 emit quote
                     --increase k
                     self.state.[s]:next()
@@ -867,7 +884,7 @@ local ProductRange = function(Ranges)
                 end
             end
             --increase D-1
-            local s = "_"..tostring(D-1)
+            local s = "_"..tostring(order[D]-1)
             emit quote
                 self.state.[s]:next()
                 if self.state.[s]:isvalid() then
@@ -879,7 +896,7 @@ local ProductRange = function(Ranges)
 
     terra iterator:isvalid()
         escape
-            local s = "_"..tostring(D-1)
+            local s = "_"..tostring(order[D]-1)
             emit quote
                 return self.state.[s]:isvalid()
             end
@@ -930,6 +947,35 @@ local reduce = macro(function(binaryop)
     return `transform(tuplereduce)
 end)
 
+local printtable = function(tab)
+    for k,v in pairs(tab) do
+        print(k)
+        print(v)
+        print()
+    end
+end
+
+local reverse = macro(function() 
+    --reduction vararg template function
+    local rev = macro(function(...)
+        local args = terralib.newlist{...}
+        local n = #args
+        if n==1 and args[1]:gettype().convertible=="tuple" then
+            --case of a tuple
+            local reversedargs = terralib.newlist()
+            for i = 1, n do
+                local s = "_" .. tostring(n-i)
+                reversedargs[i] = quote args.[s] end
+            end
+            return `{[reversedargs]}
+        else
+            return `{[args:rev()]}
+        end
+    end)
+    --call transform to apply the above macro
+    return `transform(rev)
+end)
+
 --export functionality for developing new ranges
 local develop = {
     RangeBase = RangeBase,
@@ -949,6 +995,7 @@ return {
     Unitrange = Unitrange,
     Steprange = Steprange,
     reduce = reduce,
+    reverse = reverse,
     op = binaryoperation,
     transform = transform,    
     filter = filter,
