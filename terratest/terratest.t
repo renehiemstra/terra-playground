@@ -100,7 +100,11 @@ end
 local function get_parametric_name(env, envname, params, isparametric)
     local parametricname = envname
     if isparametric then                 
-        parametricname = envname.."("..params[1].."="..tostring(env[params[1]])
+        local actual = env[params[1]]
+        if type(actual)=="table" then
+            actual = terralib.newlist(actual)
+        end
+        parametricname = envname.."("..params[1].."="..tostring(actual)
         for i=2,#params do               
             parametricname = parametricname..","..params[i].."="..tostring(env[params[i]])
         end                              
