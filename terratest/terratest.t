@@ -96,19 +96,25 @@ local function process_env_parameters(lex)
     return isparametric, params
 end
 
+local function israwlist(t)
+    if type(t)=="table" and not terralib.types.istype(t) then
+        return true
+    else
+        return false
+    end
+end
+
 --get the paramtric name of a 'testset' or 'testenv'
 local function get_parametric_name(env, envname, params, isparametric)
     local parametricname = envname
-    if isparametric then                 
-        local actual = env[params[1]]
-        if type(actual)=="table" then
-            actual = terralib.newlist(actual)
+    if isparametric then       
+        local parameters = terralib.newlist()
+        for i, param in ipairs(params) do
+            local actual = env[param]
+            if israwlist(actual) then actual = terralib.newlist(actual) end         
+            parameters:insert(param.." = "..tostring(actual))
         end
-        parametricname = envname.."("..params[1].."="..tostring(actual)
-        for i=2,#params do               
-            parametricname = parametricname..","..params[i].."="..tostring(env[params[i]])
-        end                              
-        parametricname = parametricname..")"
+        parametricname = parametricname .. "(" .. table.concat(parameters, ", ") .. ")"
     end
     return parametricname
 end
