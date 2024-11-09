@@ -9,6 +9,7 @@ local err = require("assert")
 local template = require("template")
 local concept = require("concept")
 local tmath = require("mathfuns")
+local range = require("range")
 
 concept.Vector = concept.AbstractInterface:new("Vector")
 local Stack = stack.Stack
@@ -109,9 +110,46 @@ local VectorBase = function(Vector)
 		concept.Vector:addimplementations{Vector}
 	end
 
+    
+
 end
+
+
+local IteratorBase = function(Vector)
+
+    local T = Vector.eltype
+
+    local struct iterator{
+        -- Reference to vector over which we iterate.
+        -- It's used to check the length of the iterator
+        parent : &Vector
+        -- Reference to the current element held in the smart block
+        ptr : &T
+    }
+
+    terra Vector:getiterator()
+        return iterator {self, &self.data[0]}
+    end
+
+    terra iterator:getvalue()
+        return @self.ptr
+    end
+
+    terra iterator:next()
+        self.ptr = self.ptr + 1
+    end
+
+    terra iterator:isvalid()
+        return (self.ptr - &self.parent.data[0]) < self.parent:length()
+    end
+    
+    range.Base(Vector, iterator)
+
+end
+
 
 return {
     Vector = concept.Vector,
-    VectorBase = VectorBase
+    VectorBase = VectorBase,
+    IteratorBase = IteratorBase
 }

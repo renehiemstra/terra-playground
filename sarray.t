@@ -292,34 +292,10 @@ local SArrayIteratorBase = function(Array)
     --return cartesian indices product range
     terra Array:cartesian_indices()
         return range.product([__uranges], {perm = {[Array.perm]}})
-    end        
-
-    local struct iterator{
-        -- Reference to vector over which we iterate.
-        -- It's used to check the length of the iterator
-        parent: &Array
-        -- Reference to the current element held in the smart block
-        ptr: &Array.eltype
-    }
-
-    terra Array:getiterator()
-        return iterator {self, &self.data[0]}
-    end
-
-    terra iterator:getvalue()
-        return @self.ptr
-    end
-
-    terra iterator:next()
-        self.ptr = self.ptr + 1
-    end
-
-    terra iterator:isvalid()
-        return (self.ptr - &self.parent.data[0]) < [Array.length]
     end
     
-    range.Base(Array, iterator)
-    
+    --standard iterator is added in VectorBase
+    vecbase.IteratorBase(Array) --add fall-back routines
 end
 
 
