@@ -13,6 +13,7 @@ local checkall, checkallcartesian
 
 local Range = concept.Concept:new("Range", function(self, T) return T.isrange==true end)
 
+
 terraform checkall(A : &V, v : T) where {V : Range, T : concept.Number}
     for a in A do
         if a ~= v then

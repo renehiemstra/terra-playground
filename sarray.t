@@ -8,6 +8,7 @@ local err = require("assert")
 local base = require("base")
 local tmath = require("mathfuns")
 local concept = require("concept")
+local vecbase = require("vector")
 local range = require("range")
 
 local size_t = uint64
@@ -121,7 +122,11 @@ local SArrayStackBase = function(Array)
     --    Size[D] * Size[D-1] * ... * Size[2] * i_{1}
     local Indices = Array.size:map(function(s) return symbol(size_t) end)
 
-    local terra __boundscheck([Indices])
+    local terra __boundscheck_linear(index : size_t)
+        err.assert(index < [ Array.length ], "BoundsError: out of bounds.")
+    end
+
+    local terra __boundscheck_cartesian([Indices])
         escape
             for d = 1, Array.ndims do
                 local index, size = Indices[d], Array.size[d]
@@ -136,7 +141,11 @@ local SArrayStackBase = function(Array)
     local boundscheck = macro(function(...)
         if __boundscheck__ then
             local indices = terralib.newlist{...}
-            return `__boundscheck([indices])
+            if #indices == 1 then
+                return `__boundscheck_linear([indices])
+            else
+                return `__boundscheck_cartesian([indices])
+            end
         end
     end)
 
@@ -164,12 +173,37 @@ local SArrayStackBase = function(Array)
     end
     getlinearindex:setinlined(true)
 
-    terra Array:get([Indices])
-        return self.data[getlinearindex([Indices])]
+
+    local get = terra(self : &Array, index : size_t)
+        boundscheck(index)
+        return self.data[index]
     end
     
-    terra Array:set([Indices], x : T)
-        self.data[getlinearindex([Indices])] = x
+    local set = terra(self : &Array, index : size_t, x : T)
+        boundscheck(index)
+        self.data[index] = x
+    end
+    
+    if Array.ndims == 1 then
+        Array.methods.get = get
+        Array.methods.set = set
+    else
+        Array.methods.get = terralib.overloadedfunction("get", 
+        {
+            get,
+            terra(self : &Array, [Indices])
+                return self.data[getlinearindex([Indices])]
+            end
+        })
+        
+        Array.methods.set = terralib.overloadedfunction("set",
+        {
+            set, 
+            terra(self : &Array, [Indices], x : T)
+                self.data[getlinearindex([Indices])] = x
+            end
+        })
+
     end
 
     Array.metamethods.__apply = macro(function(self, ...)
@@ -191,10 +225,29 @@ local SArrayVectorBase = function(Array)
         return [ Array.length ]
     end
 
-    terra Array:getbuffer()
-        return self:length(), &self.data[0]
+    vecbase.VectorBase(Array) --add fall-back routines
+
+    Array.staticmethods.all = terra(value : T)
+        var A = Array.new()
+        for i = 0, A:length() do
+            A:set(i, value)
+        end
+        return A
     end
 
+    if concept.Number(T) then
+
+        Array.staticmethods.zeros = terra()
+            return Array.all(T(0))
+        end
+
+        Array.staticmethods.ones = terra()
+            return Array.all(T(1))
+        end
+
+    end
+
+    --specializations using simd operations
     if T:isprimitive() then
 
         Array.staticmethods.all = terra(value : T)
@@ -211,84 +264,12 @@ local SArrayVectorBase = function(Array)
             self.simd = other.simd
         end
 
-    else
-
-        Array.staticmethods.all = terra(value : T)
-            var A = Array.new()
-            for i = 0, [Array.length] do
-                A.data[i] = value
-            end
-            return A
-        end
-
-        terra Array:fill(value : T)
-            for i = 0, [Array.length] do
-                self.data[i] = value
-            end
-        end
-
-        terra Array:copy(other : &Array)
-            for i = 0, [Array.length] do
-                self.data[i] = other.data[i]
-            end
-        end
-
-    end
-
-    if concept.Number(T) then
-
-        Array.staticmethods.zeros = terra()
-            return Array.all(T(0))
-        end
-
-        Array.staticmethods.ones = terra()
-            return Array.all(T(1))
-        end
-
-        -- dot impletation doesn't profit from a vectorized implementation
-        -- as the operation works vertically and thus requires synchronization
-        -- of the vector registers.
-        terra Array:dot(other : &Array)
-            var s = T(0)
-            for i = 0, [Array.length] do
-                s = s + self.data[i] * other.data[i]
-            end
-            return s
-        end
-        
-        terra Array:norm2()
-            return self:dot(self)
-        end
-
-        if concept.Float(T) then
-            terra Array:norm() : T
-                return tmath.sqrt(self:norm())
-            end
-        end
-    end
-
-    if T:isprimitive() then
-
         terra Array:scal(a : T)
             self.simd = a * self.simd
         end
 
         terra Array:axpy(a : T, x : &Array)
             self.simd = self.simd + a * x.simd
-        end
-
-    elseif concept.Number(T) then
-
-        terra Array:scal(a : T)
-            for i = 0, [Array.length] do
-                self.data[i] = a * self.data[i]
-            end
-        end
-
-        terra Array:axpy(a : T, x : &Array)
-            for i = 0, [Array.length] do
-                self.data[i] = self.data[i] + a * x.data[i]
-            end
         end
 
     end

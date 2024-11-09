@@ -11,7 +11,7 @@ local io = terralib.includec("stdio.h")
 
 local float1024 = nfloat.FixedFloat(1024)
 
-for _,T in ipairs{int32,float,double, float1024} do
+for _,T in ipairs{int32, float, double, float1024} do
 for N=2,4 do
     testenv(N, T) "Static vector" do
 

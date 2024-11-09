@@ -8,12 +8,12 @@ local stack = require("stack")
 local err = require("assert")
 local template = require("template")
 local concept = require("concept")
-local mathfun = require("mathfuns")
+local tmath = require("mathfuns")
 
-local Vector = concept.AbstractInterface:new("Vector")
+concept.Vector = concept.AbstractInterface:new("Vector")
 local Stack = stack.Stack
-Vector:inheritfrom(Stack)
-Vector:addmethod{
+concept.Vector:inheritfrom(Stack)
+concept.Vector:addmethod{
 	fill = concept.Number -> {},
 	clear = {} -> {},
 	sum  = {} -> concept.Number,
@@ -23,103 +23,95 @@ Vector:addmethod{
 	scal = concept.Number -> {},
 	axpy = {concept.Number, &Stack} -> {},
 	dot = &Stack -> concept.Number,
-	--norm = {} -> concept.Number, 
+	norm = {} -> concept.Number,
 }
 
-local VectorBase = function(V)
-	assert(Stack(V),
-		"A vector base implementation requires a valid stack implementation")
-	local T = V.eltype
+local VectorBase = function(Vector)
 
-	-- Promote this to a templated method with proper concepts for callable objects
-	V.methods.map = macro(function(self, other, f)
-		return quote
-			var size = self:size()
-			err.assert(size <= other:size())
-			for i = 0, size do
-			other:set(i, f(self:get(i)))
-			end
-		in
-			other
-		end
-	end)
+	assert(Stack(Vector),
+		"A vector base implementation requires a valid stack implementation.")
 
-	terraform V:fill(a : T) where {T : concept.Number}
-		var size = self:size()
-		for i = 0, size do
-			self:set(i, a)
-		end
-	end
+    local T = Vector.eltype
 
-	terra V:clear()
-		self:fill(0)
-	end
+    terra Vector:getbuffer()
+        return self:length(), &self.data[0]
+    end
 
-	terra V:sum()
-		var size = self:size()
-		var res : T = 0
-		for i = 0, size do
-			res = res + self:get(i)
-		end
-		return res
-	end
+    terra Vector:fill(value : T)
+        for i = 0, self:length() do
+            self:set(i, value)
+        end
+    end
 
-	terraform V:copy(x : &S) where {S : Stack}
-		err.assert(self:size() == x:size())
-		var size = self:size()
-		for i = 0, size do
-			self:set(i, x:get(i))
-		end
-	end
+    terraform Vector:copy(other : &S) where {S : Stack}
+        for i = 0, self:length() do
+            self:set(i, other:get(i))
+        end
+    end
 
-	terraform V:swap(x : &S) where {S : Stack}
-		err.assert(self:size() == x:size())
-		var size = self:size()
-		for i = 0, size do
-			var tmp = x:get(i)
-			x:set(i, self:get(i))
+	terraform Vector:swap(other : &S) where {S : Stack}
+		err.assert(self:length() == other:length())
+		for i = 0, self:length() do
+			var tmp = other:get(i)
+			other:set(i, self:get(i))
 			self:set(i, tmp)
 		end
 	end
 
-	terraform V:scal(a : T) where {T : concept.Number}
-		var size = self:size()
-		for i = 0, size do
-			self:set(i, a * self:get(i))
-		end
-	end
+    if concept.Number(T) then
 
-	terraform V:axpy(a : T, x : &S) where {T : concept.Number, S : Stack}
-		err.assert(self:size() == x:size())
-		var size = self:size()
-		for i = 0, size do
-			var yi = self:get(i)
-			yi = yi + a * x:get(i)
-			self:set(i, yi)
-		end
-	end
+        terra Vector:clear()
+		    self:fill(0)
+	    end
 
-	terraform V:dot(x : &S) where {S : Stack}
-		err.assert(self:size() == x:size())
-		var size = self:size()
-		var res : T = 0
-		for i = 0, size do
-			res = res + mathfun.conj(self:get(i)) * x:get(i)
+        terra Vector:sum()
+            var res : T = 0
+            for i = 0, self:length() do
+                res = res + self:get(i)
+            end
+            return res
+        end
+
+        terra Vector:scal(a : T)
+            for i = 0, self:length() do
+                self:set(i, a * self:get(i))
+            end
+        end
+
+        terra Vector:axpy(a : T, x : &Vector)
+            for i = 0, self:length() do
+                self:set(i, self:get(i) + a * x:get(i))
+            end
+        end
+
+        terra Vector:dot(other : &Vector)
+            var s = T(0)
+            for i = 0, self:length() do
+                s = s + self:get(i) * other:get(i)
+            end
+            return s
+        end
+        
+        terra Vector:norm2()
+            return self:dot(self)
+        end
+
+        if concept.Float(T) then
+            terra Vector:norm() : T
+                return tmath.sqrt(self:norm())
+            end
 		end
-		return res
-	end
+
+    end
 
 	if concept.Float(T) then
-		terra V:norm()
-			return mathfun.sqrt(mathfun.real(self:dot(self)))
-		end
+		assert(concept.Vector(Vector), "Incomplete implementation of vector base class")
+		concept.Vector:addimplementations{Vector}
 	end
 
-	assert(Vector(V), "Incomplete implementation of vector base class")
-	Vector:addimplementations{V}
 end
 
 return {
-    Vector = Vector,
+    Vector = concept.Vector,
     VectorBase = VectorBase
 }
