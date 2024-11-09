@@ -242,8 +242,18 @@ function AbstractInterface:new(name, ref_methods)
 		end
 
 		local function check_method(name, ref_sig)
-			if T.methods[name] then
-				return is_implemented(T.methods[name].type, ref_sig.type)
+			local fun = T.methods[name]
+			if fun then
+				if terralib.isoverloadedfunction(fun) then
+					for _,f in ipairs(fun.definitions) do
+						if is_implemented(f.type, ref_sig.type) then
+							return true
+						end
+					end
+					return false
+				else
+					return is_implemented(fun.type, ref_sig.type)
+				end
 			else
 				return false
 			end
