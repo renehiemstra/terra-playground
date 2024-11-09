@@ -9,6 +9,8 @@ local base = require("base")
 local concept = require("concept")
 local template = require("template")
 local lambda = require("lambdas")
+local tmath = require("mathfuns")
+local nfloat = require("nfloat")
 local err = require("assert")
 
 local size_t = uint64
@@ -128,7 +130,29 @@ local RangeBase = function(Range, iterator_t)
 
 end
 
-local Unitrange = function(T)
+local floor
+terraform floor(v : T) where {T : concept.Integer}
+    return size_t(v)
+end
+
+terraform floor(v : T) where {T : concept.Float}
+    return [size_t](tmath.floor(v))
+end
+
+terraform floor(v : T) where {T : nfloat.NFloat}
+    return [size_t](v:truncatetodouble())
+end
+
+local truncate
+terraform truncate(v : T) where {T}
+    return [size_t](v)
+end
+
+terraform truncate(v : T) where {T : nfloat.NFloat}
+    return [size_t](v:truncatetodouble())
+end
+
+local Unitrange = terralib.memoize(function(T)
 
     local struct range{
         a : T
@@ -140,7 +164,7 @@ local Unitrange = function(T)
 
     local new = terra(a : T, b : T, include_last : bool)
         err.assert((b-a) > 0)
-        var size = [size_t](b-a) + [int](include_last)
+        var size = floor(b-a) + [int](include_last)
         return range{a, a + size}
     end
 
@@ -183,9 +207,9 @@ local Unitrange = function(T)
     RangeBase(range, iterator)
 
     return range
-end
+end)
 
-local Steprange = function(T)
+local Steprange = terralib.memoize(function(T)
 
     local struct range{
         a : T
@@ -209,7 +233,7 @@ local Steprange = function(T)
     })
     
     terra range:size() : size_t
-        return (self.b-self.a) / self.step
+        return truncate((self.b-self.a) / self.step)
     end
 
     range.metamethods.__apply = terra(self : &range, i : size_t)
@@ -242,7 +266,7 @@ local Steprange = function(T)
     RangeBase(range, iterator)
 
     return range
-end
+end)
 
 local TransformedRange = function(Range, Function)
 
@@ -818,7 +842,7 @@ end
 
 local ProductRange = function(Ranges, options)
 
-    --order is a sequence of numbers denoting the order in which the
+    --perm is a sequence of numbers denoting the perm in which the
     --product iterator iterates.
 
     local product = newcombiner(Ranges, "product")
@@ -828,8 +852,8 @@ local ProductRange = function(Ranges, options)
     local D = #Ranges
     --default ordering is {D, D-1, ... , 1}
     --this default is chosen to support array indexing in row-major format.
-    local order = options and options.order or Ranges:mapi(function(i,v) return D+1-i end)
-    assert(type(order) == "table" and #order == D)
+    local perm = options and options.perm or Ranges:mapi(function(i,v) return D+1-i end)
+    assert(type(perm) == "table" and #perm == D)
 
     --local type traits
     local state_t = terralib.newlist{}
@@ -870,7 +894,7 @@ local ProductRange = function(Ranges, options)
     terra iterator:next()
         escape
             for k=1, D-1 do
-                local s = "_"..tostring(order[k]-1)
+                local s = "_"..tostring(perm[k]-1)
                 emit quote
                     --increase k
                     self.state.[s]:next()
@@ -884,7 +908,7 @@ local ProductRange = function(Ranges, options)
                 end
             end
             --increase D-1
-            local s = "_"..tostring(order[D]-1)
+            local s = "_"..tostring(perm[D]-1)
             emit quote
                 self.state.[s]:next()
                 if self.state.[s]:isvalid() then
@@ -896,7 +920,7 @@ local ProductRange = function(Ranges, options)
 
     terra iterator:isvalid()
         escape
-            local s = "_"..tostring(order[D]-1)
+            local s = "_"..tostring(perm[D]-1)
             emit quote
                 return self.state.[s]:isvalid()
             end

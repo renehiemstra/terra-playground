@@ -17,14 +17,14 @@ for N=2,4 do
 
             local svec = SVector.StaticVector(T,N)   
          
-            testset "new, size, get, set" do
+            testset "new, length, get, set" do
                 terracode
                     var v = svec.new()
                     for i=0,N do              
                         v:set(i, i+1)
                     end                     
                 end
-                test v:size()==N
+                test v:length()==N
                 for i=0,N-1 do              
                     test v:get(i) == T(i+1)
                 end 
@@ -34,7 +34,7 @@ for N=2,4 do
                 terracode                                  
                     var v = svec.zeros()
                 end
-                test v:size()==N
+                test v:length()==N
                 for i=0,N-1 do              
                     test v:get(i) == 0
                 end 
@@ -44,7 +44,7 @@ for N=2,4 do
                 terracode                                  
                     var v = svec.ones()
                 end 
-                test v:size()==N
+                test v:length()==N
                 for i=0,N-1 do              
                     test v:get(i) == T(1)
                 end 
@@ -54,7 +54,7 @@ for N=2,4 do
                 terracode                                  
                     var v = svec.all(T(3))
                 end 
-                test v:size()==N
+                test v:length()==N
                 for i=0,N-1 do              
                     test v:get(i) == T(3)
                 end 
@@ -68,7 +68,7 @@ for N=2,4 do
             terracode
                 var v = svec.from(1, 2)
             end
-            test v:size() == 2
+            test v:length() == 2
             test v:get(0) == 1
             test v:get(1) == 2
         end
@@ -78,7 +78,7 @@ for N=2,4 do
             terracode
                 var v = svec.from(1, 2, 3)
             end
-            test v:size() == 3
+            test v:length() == 3
             test v:get(0) == 1
             test v:get(1) == 2
             test v:get(2) == 3
@@ -91,7 +91,7 @@ for N=2,4 do
                 var w = svec.new()
                 w:copy(&v)
             end
-            test w:size() == 4
+            test w:length() == 4
             for i = 0, 3 do
                 test w:get(i) == i + 1
             end
@@ -104,7 +104,7 @@ for N=2,4 do
                 var w = svec.from(5, 4, 3, 2, 1)
                 w:axpy(1, &v)
             end
-            test w:size() == 5
+            test w:length() == 5
             for i = 0, 4 do
                 test w:get(i) == 6
             end
