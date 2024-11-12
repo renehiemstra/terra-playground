@@ -249,12 +249,18 @@ local FixedFloat = terralib.memoize(function(N)
         return res
     end
 
-    terra nfloat:truncatetodouble()
+    terra nfloat:truncatetodouble() : double
         var m = significant_part_mantissa(self)
         var e = exponent(self)
         var s = sign(self)
         return s * shiftandscale(m, e)
     end
+
+    mathfun.numtostr:adddefinition(
+        terra(v : nfloat)
+            mathfun.numtostr(v:truncatetodouble())
+        end
+    )
 
     for _, func in pairs(unary_math) do
         local name = "nfloat_" .. func

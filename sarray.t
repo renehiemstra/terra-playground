@@ -3,7 +3,7 @@
 --
 -- SPDX-License-Identifier: MIT
 
-import "terraform"
+local io = terralib.includec("stdio.h")
 local err = require("assert")
 local base = require("base")
 local tmath = require("mathfuns")
@@ -12,6 +12,7 @@ local vecbase = require("vector")
 local range = require("range")
 
 local size_t = uint64
+
 
 --global flag to perform boundscheck
 __boundscheck__ = true
@@ -81,16 +82,71 @@ local SArrayRawType = function(T, Size, options)
     Array.length = Length
     Array.size = Size
     Array.perm = Perm
+    Array.ldim = SizeL
 
     return Array
 end
 
+
+
+
+local linrange = {}
+linrange.__index = linrange
+linrange.__metatable = linrange
+
+function linrange.new(n)
+    local t = {}
+    t.n = n
+    return setmetatable(t, linrange)
+end
+
+function linrange:next(i)
+    local i = i+1
+    if i < self.n then
+        return i
+    end
+end
+
+function linrange:iterate()
+    return linrange.next, self, -1
+end
+
+local function next(sizes, iter, i, k)
+    i[k] = iter[k]:next(i[k])
+    if i[k] then
+        return true
+    else
+        if k>1 then
+            iter[k] = linrange.new(sizes[k])
+            i[k] = iter[k]:next(-1)
+            return next(sizes, iter, i, k-1)
+        end
+    end
+    return false
+end
+
+local productiter = function(...)
+    local sizes = terralib.newlist{...}
+    local m = #sizes
+    local iter = sizes:map(function(s) return linrange.new(s) end)
+    local i = sizes:map(function(s) return 0 end)
+    i[m] = -1
+    return function()
+        if next(sizes, iter, i, m) then
+            return i
+        end
+    end
+end
 
 local SArrayStackBase = function(Array)
 
     local T = Array.eltype
     local __size = terralib.constant(terralib.new(size_t[Array.ndims], Array.size))
     local __perm = terralib.constant(terralib.new(size_t[Array.ndims], Array.perm))
+
+    terra Array:getdataptr() : &T
+        return &self.data[0]
+    end
 
     --element size as a terra method
     Array.methods.size = terralib.overloadedfunction("size", {
@@ -173,7 +229,6 @@ local SArrayStackBase = function(Array)
     end
     getlinearindex:setinlined(true)
 
-
     local get = terra(self : &Array, index : size_t)
         boundscheck(index)
         return self.data[index]
@@ -203,18 +258,68 @@ local SArrayStackBase = function(Array)
                 self.data[getlinearindex([Indices])] = x
             end
         })
-
     end
 
     Array.metamethods.__apply = macro(function(self, ...)
         local indices = terralib.newlist{...}
-        return `self.data[getlinearindex([indices])]
+        if #indices == 1 then
+            if indices[1].tree.type.convertible == "tuple" then
+                return `self.data[getlinearindex(unpacktuple([indices]))]
+            else
+                local index = indices[1] 
+                return `self.data[ [index] ]
+            end
+        else   
+            return `self.data[getlinearindex([indices])]
+        end
     end)
 
     Array.staticmethods.new = terra()
         return Array{}
     end
 
+    local function processarraydim(array, k)
+        assert(#array == Array.size[k], "ArgumentError: array input size inconsistent with array dimensions.")
+        if k < Array.ndims then
+            for i,v in ipairs(array) do
+                assert(type(v) == "table", "ArgumentError: expected array input of dimension " .. tostring(Array.ndims) ..".")
+                array[i] = terralib.newlist(v)
+                assert(#array[i] == Array.size[k+1], "ArgumentError: array input size inconsistent with array dimensions.")
+                processarraydim(array[i], k+1)
+            end
+        end
+    end
+
+    local function processarrayinput(array)
+        processarraydim(array, 1)
+        return array
+    end
+
+    local function getarrayentry(array, mi, k)
+        local k = k or 1
+        if type(array) == "table" then
+            return getarrayentry(array[ mi[k]+1 ], mi, k+1)
+        else
+            return array
+        end
+    end
+
+    Array.staticmethods.from = macro(function(args)
+        local arrayentries = terralib.newlist(args:asvalue())
+        arrayentries = processarrayinput(arrayentries)
+        return quote
+            var array : Array
+            escape
+                for mi in productiter(unpack(Array.size)) do
+                    local v = getarrayentry(arrayentries, mi)
+                    emit quote array([mi]) = [ v ] end
+                end
+            end
+        in
+            array
+        end
+    end)
+    
 end
 
 local SArrayVectorBase = function(Array)
@@ -276,13 +381,13 @@ local SArrayVectorBase = function(Array)
 
 end
 
-
 local SArrayIteratorBase = function(Array)
 
     local T = Array.eltype
 
     local Unitrange = range.Unitrange(int)
     local __uranges = Array.size:map(function(s) return terralib.constant( terralib.new(Unitrange, {0, s}) ) end)
+    local rowmajorperm = Array.size:mapi(function(i,v) return Array.ndims+1-i end)
 
     --return linear indices product range
     terra Array:linear_indices()
@@ -293,9 +398,74 @@ local SArrayIteratorBase = function(Array)
     terra Array:cartesian_indices()
         return range.product([__uranges], {perm = {[Array.perm]}})
     end
-    
+
+    terra Array:rowmajor_cartesian_indixes()
+        return range.product([__uranges], {perm = {[rowmajorperm]}})
+    end
+
     --standard iterator is added in VectorBase
     vecbase.IteratorBase(Array) --add fall-back routines
+
+    local print_vector = function(self, name)
+        return quote
+            io.printf("%s = \n", [ name ])
+            for v in self do
+                io.printf("[%s]\n", tmath.numtostr(v))
+            end
+            io.printf("\n")
+        end
+    end
+
+    local print_matrix = function(self, name)
+        local I, J = __uranges[1], __uranges[2]
+        return quote 
+            io.printf("%s = \n", [ name ])
+            for i in I do
+                io.printf("\t[")
+                for j in J do
+                    var value = self(i, j)
+                    io.printf("%s\t", tmath.numtostr(value))
+                end
+                io.printf("]\n")
+            end
+            io.printf("\n")
+        end
+    end
+
+    local print_array = function(self, name)
+        local m = Array.ndims
+        local I, J = __uranges[m-1], __uranges[m]
+        local K = __uranges:filteri(function(i,v) return i <= m - 2 end)
+        local p = rowmajorperm:filteri(function(i,v) return i <= m - 2 end)
+        local ntimes = K:mapi(function(i,v) return "%d" end)
+        local slice = name .."[" .. table.concat(ntimes,",") .. ", :, :] = \n"
+        return quote 
+            for k in range.product([K]) do
+                io.printf([ slice ], unpacktuple(k))
+                for i in I do
+                    io.printf("\t[")
+                    for j in J do
+                        var value = self(unpacktuple(k), i, j)
+                        io.printf("%s\t", tmath.numtostr(value))
+                    end
+                    io.printf("]\n")
+                end
+                io.printf("\n")
+            end
+        end
+    end
+
+    Array.methods.show = macro(function(self)
+        local name = self.tree.name
+        if Array.ndims == 1 then
+            return print_vector(self, name)
+        elseif Array.ndims == 2 then
+            return print_matrix(self, name)
+        else
+            return print_array(self, name)
+        end
+    end)
+ 
 end
 
 
@@ -327,6 +497,7 @@ local StaticArray = function(T, Size, options)
 
     return Array
 end
+
 
 return {
     StaticArray = StaticArray,

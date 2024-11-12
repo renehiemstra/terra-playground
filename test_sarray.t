@@ -13,6 +13,52 @@ local checkall, checkallcartesian
 
 local Range = concept.Concept:new("Range", function(self, T) return T.isrange==true end)
 
+local SVector = sarray.StaticArray(float, {3})
+local SMatrix = sarray.StaticArray(float, {2, 3}, {perm={1,2}} )
+local SArray3f = sarray.StaticArray(float, {2, 3, 4}, {perm={1,2,3}} )
+local SArray4i = sarray.StaticArray(int, {2, 2, 2, 3}, {perm={1,2,3,4}} )
+
+terra main()
+    var v = SVector.from({1, 2, 3})
+    v:show()
+
+    var A = SMatrix.from({
+        {1, 2, 3},
+        {4, 5, 6}
+    })
+    A:show()
+
+    var B = SArray3f.from({{
+        {1, 2, 3, 4},
+        {5, 6, 7, 8},
+        {9, 10, 11, 12},
+    },{
+        {1, 2, 3, 4},
+        {5, 6, 7, 8},
+        {9, 10, 11, 12},
+    }})
+    B:show()
+
+    var C = SArray4i.from({{{
+        {1, 2, 3},
+        {4, 5, 6},
+    },
+    {
+        {1, 2, 3},
+        {4, 5, 6},
+    }},
+    {{
+        {1, 2, 3},
+        {4, 5, 6},
+    },
+    {
+        {1, 2, 3},
+        {4, 5, 6},
+    }}})
+
+    C:show()
+end
+main()
 
 terraform checkall(A : &V, v : T) where {V : Range, T : concept.Number}
     for a in A do

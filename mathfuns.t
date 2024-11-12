@@ -3,8 +3,10 @@
 --
 -- SPDX-License-Identifier: MIT
 
+import "terraform"
 local math = {}
 local C = terralib.includecstring[[
+    #include <stdio.h>
     #include <stdlib.h>
     #include <math.h>
     #include <tgmath.h>
@@ -95,7 +97,6 @@ end
 math.abs:adddefinition(terra(x : int) return C.abs(x) end)
 math.abs:adddefinition(terra(x : int64) return C.labs(x) end)
 
-
 --convenience functions
 local cotf = terra(x : float) return math.cos(x) / math.sin(x) end
 local cot  = terra(x : double) return math.cos(x) / math.sin(x) end
@@ -126,6 +127,25 @@ for _, name in pairs({"real", "imag", "conj"}) do
         end
         math[name]:adddefinition(impl)
     end
+end
+
+--numbers to string
+math.numtostr = terralib.overloadedfunction("numtostr")
+for _, T in ipairs{int32, int64} do
+    local impl = terra(v : T)
+        var str : int8[8]
+        C.sprintf(&str[0], "%d", v)
+        return str
+    end
+    math.numtostr:adddefinition(impl)
+end
+for _, T in ipairs{float, double} do
+    local impl = terra(v : T)
+        var str : int8[8]
+        C.sprintf(&str[0], "%0.3f", v)
+        return str
+    end
+    math.numtostr:adddefinition(impl)
 end
 
 return math
