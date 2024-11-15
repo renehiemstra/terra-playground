@@ -13,9 +13,8 @@ local Vector = vecbase.Vector
 
 local Operator = concept.AbstractInterface:new("Operator")
 Operator:addmethod{
-    rows = {} -> UInteger,
-    cols = {} -> UInteger,
-    apply = {Bool, Number, &Vector, Number, &Vector} -> {},
+    size = {UInteger} -> UInteger,
+    apply = {Number, &Vector, Number, &Vector} -> {},
 }
 
 return {

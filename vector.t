@@ -24,7 +24,7 @@ concept.Vector:addmethod{
 	scal = concept.Number -> {},
 	axpy = {concept.Number, &Stack} -> {},
 	dot = &Stack -> concept.Number,
-	norm = {} -> concept.Number,
+	--norm = {} -> concept.Number,
 }
 
 local VectorBase = function(Vector)
@@ -35,7 +35,7 @@ local VectorBase = function(Vector)
     local T = Vector.eltype
 
     terra Vector:getbuffer()
-        return self:length(), &self.data[0]
+        return self:length(), self:getdataptr()
     end
 
     terra Vector:fill(value : T)
@@ -110,8 +110,6 @@ local VectorBase = function(Vector)
 		concept.Vector:addimplementations{Vector}
 	end
 
-    
-
 end
 
 
@@ -128,7 +126,7 @@ local IteratorBase = function(Vector)
     }
 
     terra Vector:getiterator()
-        return iterator {self, &self.data[0]}
+        return iterator {self, self:getdataptr()}
     end
 
     terra iterator:getvalue()
@@ -140,7 +138,7 @@ local IteratorBase = function(Vector)
     end
 
     terra iterator:isvalid()
-        return (self.ptr - &self.parent.data[0]) < self.parent:length()
+        return (self.ptr - self.parent:getdataptr()) < self.parent:length()
     end
     
     range.Base(Vector, iterator)

@@ -20,13 +20,13 @@ local SArray4i = sarray.StaticArray(int, {2, 2, 2, 3}, {perm={1,2,3,4}} )
 
 terra main()
     var v = SVector.from({1, 2, 3})
-    v:show()
+    v:print()
 
     var A = SMatrix.from({
         {1, 2, 3},
         {4, 5, 6}
     })
-    A:show()
+    A:print()
 
     var B = SArray3f.from({{
         {1, 2, 3, 4},
@@ -37,7 +37,7 @@ terra main()
         {5, 6, 7, 8},
         {9, 10, 11, 12},
     }})
-    B:show()
+    B:print()
 
     var C = SArray4i.from({{{
         {1, 2, 3},
@@ -56,7 +56,7 @@ terra main()
         {4, 5, 6},
     }}})
 
-    C:show()
+    C:print()
 end
 main()
 

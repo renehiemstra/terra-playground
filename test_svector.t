@@ -5,7 +5,7 @@
 
 import "terratest/terratest"
 
-local SVector = require('svector')
+local sarray = require('sarray')
 local nfloat = require("nfloat")
 local io = terralib.includec("stdio.h")
 
@@ -13,60 +13,62 @@ local float1024 = nfloat.FixedFloat(1024)
 
 for _,T in ipairs{int32, float, double, float1024} do
 for N=2,4 do
+
     testenv(N, T) "Static vector" do
 
-            local svec = SVector.StaticVector(T,N)   
-         
-            testset "new, length, get, set" do
-                terracode
-                    var v = svec.new()
-                    for i=0,N do              
-                        v:set(i, i+1)
-                    end                     
-                end
-                test v:length()==N
-                for i=0,N-1 do              
-                    test v:get(i) == T(i+1)
-                end 
-            end
-          
-            testset "zeros" do                       
-                terracode                                  
-                    var v = svec.zeros()
-                end
-                test v:length()==N
-                for i=0,N-1 do              
-                    test v:get(i) == 0
-                end 
-            end 
+        local svec = sarray.StaticVector(T,N)   
         
-            testset "ones" do                       
-                terracode                                  
-                    var v = svec.ones()
-                end 
-                test v:length()==N
-                for i=0,N-1 do              
-                    test v:get(i) == T(1)
-                end 
+        testset "new, length, get, set" do
+            terracode
+                var v = svec.new()
+                for i=0,N do              
+                    v:set(i, i+1)
+                end                     
+            end
+            test v:length()==N
+            for i=0,N-1 do              
+                test v:get(i) == T(i+1)
             end 
+        end
+        
+        testset "zeros" do                       
+            terracode                                  
+                var v = svec.zeros()
+            end
+            test v:length()==N
+            for i=0,N-1 do              
+                test v:get(i) == 0
+            end 
+        end 
+    
+        testset "ones" do                       
+            terracode                                  
+                var v = svec.ones()
+            end 
+            test v:length()==N
+            for i=0,N-1 do              
+                test v:get(i) == T(1)
+            end 
+        end 
 
-            testset "all" do                       
-                terracode                                  
-                    var v = svec.all(T(3))
-                end 
-                test v:length()==N
-                for i=0,N-1 do              
-                    test v:get(i) == T(3)
-                end 
+        testset "all" do                       
+            terracode                                  
+                var v = svec.all(T(3))
             end 
-            
-        end --N
+            test v:length()==N
+            for i=0,N-1 do              
+                test v:get(i) == T(3)
+            end 
+        end 
+        
+    end --testenv(N, T)
 
     testenv "Fixed N" do
+
         testset "from (N=2)" do
-            local svec = SVector.StaticVector(T, 2)
+            local svec = sarray.StaticVector(T, 2)
             terracode
-                var v = svec.from(1, 2)
+                var v = svec.from({1, 2})
             end
             test v:length() == 2
             test v:get(0) == 1
@@ -74,9 +76,9 @@ for N=2,4 do
         end
 
         testset "from (N=3)" do
-            local svec = SVector.StaticVector(T, 3)
+            local svec = sarray.StaticVector(T, 3)
             terracode
-                var v = svec.from(1, 2, 3)
+                var v = svec.from{1, 2, 3}
             end
             test v:length() == 3
             test v:get(0) == 1
@@ -85,9 +87,9 @@ for N=2,4 do
         end
 
         testset "copy (N=4)" do
-            local svec = SVector.StaticVector(T, 4)
+            local svec = sarray.StaticVector(T, 4)
             terracode
-                var v = svec.from(1, 2, 3, 4)
+                var v = svec.from{1, 2, 3, 4}
                 var w = svec.new()
                 w:copy(&v)
             end
@@ -98,10 +100,10 @@ for N=2,4 do
         end
 
         testset "axpy (N=5)" do
-            local svec = SVector.StaticVector(T, 5)
+            local svec = sarray.StaticVector(T, 5)
             terracode
-                var v = svec.from(1, 2, 3, 4, 5)
-                var w = svec.from(5, 4, 3, 2, 1)
+                var v = svec.from{1, 2, 3, 4, 5}
+                var w = svec.from{5, 4, 3, 2, 1}
                 w:axpy(1, &v)
             end
             test w:length() == 5
@@ -111,10 +113,10 @@ for N=2,4 do
         end
 
         testset "dot (N=6)" do
-            local svec = SVector.StaticVector(T, 6)
+            local svec = sarray.StaticVector(T, 6)
             terracode
-                var v = svec.from(1, 2, 3, 4, 5, 6)
-                var w = svec.from(5, 4, 3, 2, 1, 0)
+                var v = svec.from{1, 2, 3, 4, 5, 6}
+                var w = svec.from{5, 4, 3, 2, 1, 0}
                 var res = w:dot(&v)
             end
             test res == 35

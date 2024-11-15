@@ -186,7 +186,6 @@ local SmartBlock = terralib.memoize(function(T)
                 [&to.type](blk)
             end
         end
-        print("trying cast")
     end --__cast
 
     function block.metamethods.__staticinitialize(self)
@@ -197,6 +196,10 @@ local SmartBlock = terralib.memoize(function(T)
 
         --add base functionality
         Base(block, T)
+
+        terra block:getdataptr() : &T
+            return self.ptr
+        end
 
         --setters and getters
         block.methods.get = terra(self : &block, i : size_t)
