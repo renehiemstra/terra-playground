@@ -71,14 +71,11 @@ local SlicedSMatrix = function(ParentMatrix, ...)
 
     local __ranges = { terralib.constant(terralib.new(Ranges[1], {})), terralib.constant(terralib.new(Ranges[2], {})) }
 
-    local SMatrix = sarray.SArrayRawType(T, Size, {perm=Perm, cumulative_size=ParentMatrix.traits.cumsize} )
-
-    function SMatrix.metamethods.__typename(self)
+    local function typename(traits)
         return ("View{SMatrix(%s, {%d, %d})}"):format(tostring(T), ParentMatrix.traits.size[1], ParentMatrix.traits.size[2])
     end
 
-    --add base functionality
-    base.AbstractBase(SMatrix)
+    local SMatrix = sarray.SArrayRawType(typename, T, Size, {perm=Perm, cumulative_size=ParentMatrix.traits.cumsize} )
 
     SMatrix.methods.slice = macro(function(self, k, ...)
         local indices = terralib.newlist{...}
@@ -87,7 +84,7 @@ local SlicedSMatrix = function(ParentMatrix, ...)
         local range = __ranges[K]
         return `range([index])
     end)
-
+    
     --implement interfaces
     sarray.SArrayStackBase(SMatrix)
     sarray.SArrayVectorBase(SMatrix)
@@ -140,8 +137,6 @@ SMatrix.metamethods.__apply = macro(function(self, ...)
         end
     elseif #indices == 2 then
         local I, J = slice(indices[1]), slice(indices[2])
-        print(I)
-        print(J)
         if I and J then
             local MatrixView = SlicedSMatrix(SMatrix, I, J)
             return `[&MatrixView](&self)
@@ -162,7 +157,7 @@ terra main()
     A:print()
 
     var B = A(2, {1,4,-1})
-    --B:print()
+    B:print()
 
 end
 main()

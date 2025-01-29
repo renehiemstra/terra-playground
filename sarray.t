@@ -114,7 +114,7 @@ local SArrayStackBase = function(Array)
 
     local T = Array.traits.eltype
     local N = Array.traits.ndims
-    
+
     terra Array:length() : size_t
         return [Array.traits.length]
     end
