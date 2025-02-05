@@ -8,7 +8,7 @@ require("terralibext")
 local C = terralib.includecstring[[
     #include <stdio.h>
     #include <unistd.h>
-    #include "gnuplot/src/gnuplot_i.h"
+    #include "gnuplot/gnuplot_i.h"
 ]]
 
 local uname = io.popen("uname", "r"):read("*a")

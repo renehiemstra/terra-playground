@@ -65,8 +65,8 @@ $(OBJ): %.o: pcg/%.c
 gnuplot_i.$(dyn): gnuplot_i.o
 	$(CC) -fPIC -shared $^ -o $@
 	
-gnuplot_i.o: gnuplot/src/gnuplot_i.c gnuplot/src/gnuplot_i.h
-	$(CC) $(CFLAGS) -c -o gnuplot_i.o gnuplot/src/gnuplot_i.c
+gnuplot_i.o: gnuplot/gnuplot_i.c gnuplot/gnuplot_i.h
+	$(CC) $(CFLAGS) -c -o gnuplot_i.o gnuplot/gnuplot_i.c
 
 test: libexport.$(dyn) libtinymt.$(dyn) libpcg.$(dyn)
 	terra import.t
