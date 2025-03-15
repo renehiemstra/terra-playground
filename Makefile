@@ -19,9 +19,8 @@ CFLAGS=-O2 -march=native -fPIC
 
 all: libexport.$(dyn) libtinymt.$(dyn) libpcg.$(dyn) libhash.$(dyn) libnonlinearbc.$(dyn)  gnuplot_i.$(dyn)
 
-
 libnonlinearbc.$(dyn): nonlinearbc.o
-	$(CC) -fPIC -shared $^ -o $@ -lpthread -llapack -lblas
+	$(CC) -fPIC -shared $^ -o $@ -lpthread -lopenblas $(if $(OPENBLAS_LIB_PATH),-L$(OPENBLAS_LIB_PATH))
 
 libhash.$(dyn): hashmap.o
 	$(CC) -fPIC -shared $^ -o $@
