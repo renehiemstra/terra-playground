@@ -33,12 +33,12 @@ end
 local function Base(block, T, options)
 
     local options = terralib.newlist(options)
-    options.copyby = options.copyby or "view"
+    options.transferby = options.transferby or "move"
     --copy-assignment is one of the following three options
-    local valid_copyby = {["move"] = true, ["view"] = true, ["clone"] = true}
+    local valid_transfer = {["move"] = true, ["copy"] = true}
     assert(
-        valid_copyby[options.copyby],
-        "Provided invalid option " .. options.copyby .. " for copy constructor"
+        valid_transfer[options.transferby],
+        "Provided invalid option " .. options.transferby .. " for copy constructor"
     )
 
     --type traits
@@ -101,41 +101,17 @@ local function Base(block, T, options)
         end
         return newblk
     end
-
-    --specialized copy-assignment, moving resources over
-    if options.copyby == "move" then
-
-        block.methods.__copy = terra(from : &block, to : &block)
-            --set to
-            to.ptr = from.ptr
-            to.nbytes = from.nbytes
-            to.alloc = from.alloc
-            --reset from
-            from:__init()
-        end
-
-    --specialized copy-assignment, returning a non-owning view of the data
-    elseif options.copyby == "view" then
-
-        block.methods.__copy = terra(from : &block, to : &block)
-            to.ptr = from.ptr
-            to.nbytes = from.nbytes
-            --no allocator
-            to.alloc.data = nil
-            to.alloc.ftab = nil
-        end
-
+    
     --specialized copy-assignment, returning a deepcopy or clone
-    elseif options.copyby == "clone" then
+    if options.transferby == "copy" then
 
         block.methods.__copy = terra(from : &block, to : &block)
+            --assign cloned block to `to`. A `__dtor` is automatically scheduled
+            -- in the reassignment
             @to = from:clone()
         end
 
     end
-
-    --add raii move method
-    terralib.ext.addmissing.__move(block)
 
 end
 
@@ -223,6 +199,8 @@ local SmartBlock = terralib.memoize(function(T, options)
             --simple case when to.eltype is not managed
             else
                 return quote
+                    --get a handle to the expression object. `__dtor` and `__copy`
+                    --or `__move` will not be called.
                     var tmp = __handle__(exp)
                     --debug check if sizes are compatible, that is, is the
                     --remainder zero after integer division

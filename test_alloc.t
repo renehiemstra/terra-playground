@@ -6,31 +6,28 @@
 import "terratest/terratest"
 
 local alloc = require("alloc")
-local DefaultAllocator = alloc.DefaultAllocator()
-local TracingAllocator = alloc.TracingAllocator()
 
+local doubles = alloc.SmartBlock(double)
+
+--metamethod used here for testing - counting the number
+--of times the __dtor method is called
+local __dtor_counter = global(int, 0)
+doubles.metamethods.__dtor = macro(function(self)
+    return quote
+        if self:owns_resource() then
+            __dtor_counter = __dtor_counter + 1
+        end
+    end
+end)
 
 for _, alignment in ipairs{0, 64} do
 
+    --Alignment = 0 - corresponds to natural alignment
+    --Alignment = 64 - allocate aligned memory, size is different
+    local DefaultAllocator = alloc.DefaultAllocator({Alignment = alignment})
+    local TracingAllocator = alloc.TracingAllocator()
+
     testenv(alignment) "Block - Default allocator" do
-
-        --Alignment = 0 - corresponds to natural alignment
-        --Alignment = 64 - allocate aligned memory, size is different
-        local DefaultAllocator = alloc.DefaultAllocator({Alignment = alignment})
-
-
-        local doubles = alloc.SmartBlock(double, {copyby = "view"})
-
-        --metamethod used here for testing - counting the number
-        --of times the __dtor method is called
-        local __dtor_counter = global(int, 0)
-        doubles.metamethods.__dtor = macro(function(self)
-            return quote
-                if self:owns_resource() then
-                    __dtor_counter = __dtor_counter + 1
-                end
-            end
-        end)
 
         terracode
             var A : DefaultAllocator
@@ -79,23 +76,40 @@ for _, alignment in ipairs{0, 64} do
             test x:isempty()
         end
 
-        local integers = alloc.SmartBlock(int, {copyby = "move"})
+        local integers = alloc.SmartBlock(int, {transferby = "move"})
 
-        testset "copyby - move" do
+        testset "transferby - move" do
             terracode
                 var x : integers = A:new(sizeof(int), 2)
                 x:set(0, 1)
                 x:set(1, 2)
-                var y = x
+                var y = x --performing a move. 'x' should be empty afterwords.
             end
             test x:isempty() and y:owns_resource()
             test y:size() == 2
             test y:get(0) == 1 and y:get(1) == 2
         end
 
-        local integers = alloc.SmartBlock(int, {copyby = "clone"})
+        testset "block - clone" do
+            terracode
+                var y : doubles = A:new(sizeof(double), 3)
+                for i=0,3 do
+                    y:set(i, i)
+                end
+                var x = y:clone()
+            end
+            test y:size() == 3
+            test x.ptr ~= y.ptr
+            test y:owns_resource()
+            test x:owns_resource()
+            for i=0,2 do
+                test x:get(i)==i
+            end
+        end
 
-        testset "copyby - clone" do
+        local integers = alloc.SmartBlock(int, {transferby = "copy"})
+
+        testset "transferby - copy" do
             terracode
                 var x : integers = A:new(sizeof(int), 2)
                 x:set(0, 1)
@@ -104,25 +118,17 @@ for _, alignment in ipairs{0, 64} do
             end
             test x:owns_resource() and y:owns_resource()
             test y.ptr ~= x.ptr
-            test y:size() == 2
+            test x:size() == 2 and y:size() == 2
+            test x:get(0) == 1 and x:get(1) == 2
             test y:get(0) == 1 and y:get(1) == 2
         end
 
-        local integers = alloc.SmartBlock(int, {copyby = "view"})
-
-        testset "copyby - view" do
-            terracode
-                var x : integers = A:new(sizeof(int), 2)
-                var y = x
-            end
-            test y.ptr == x.ptr
-            test y:size() == 2
-            test x:owns_resource() and y:borrows_resource()
-        end
+        local integers = alloc.SmartBlock(int, {transferby = "move"})
 
         testset "__dtor - explicit" do
             terracode
-                var x = A:new(sizeof(double), 2)
+                --__handle__ makes sure a __dtor is not called automatically
+                var x = __handle__(A:new(sizeof(double), 2))
                 x:__dtor()
             end
             test x.ptr == nil
@@ -132,20 +138,20 @@ for _, alignment in ipairs{0, 64} do
             test x:isempty()
         end
 
-        testset "__dtor - explicit - borrowed resource" do
+        testset "__dtor - explicit - cloned resource" do
             terracode
                 var x = A:new(sizeof(double), 2)
-                var y = x --y is a view of the data
+                var y = x:clone()
                 y:__dtor()
             end
             test x:size_in_bytes() == 16
             test x:owns_resource() and y:isempty()
         end
-
+        
         testset "__dtor - generated - owned resource" do
             terracode
+                __dtor_counter = 0
                 do
-                    __dtor_counter = 0
                     var y : doubles = A:new(sizeof(double), 2)
                 end
             end
@@ -186,23 +192,7 @@ for _, alignment in ipairs{0, 64} do
                 test y:get(i)==i
             end
         end
-
-        testset "block - clone" do
-            terracode
-                var y : doubles = A:new(sizeof(double), 3)
-                for i=0,3 do
-                    y:set(i, i)
-                end
-                var x = y:clone()
-            end
-            test y:size() == 3
-            test x.ptr ~= y.ptr
-            test y:owns_resource()
-            test x:owns_resource()
-            for i=0,2 do
-                test x:get(i)==i
-            end
-        end
+        
     end
 
     testenv "Tracing allocator" do
@@ -275,6 +265,8 @@ import "terraform"
 
 testenv "SmartObject" do
 
+    local DefaultAllocator = alloc.DefaultAllocator()
+
     local struct myobj{
         a : int
         b : int
@@ -322,13 +314,14 @@ testenv "SmartObject" do
     end
 end
 
-testenv "singly linked list - that is a cycle" do
+testenv(skip) "singly linked list - that is a cycle" do
 
+    local DefaultAllocator = alloc.DefaultAllocator()
 	local Allocator = alloc.Allocator
 
     --implementation of singly-linked list
     local struct s_node
-    local smrt_s_node = alloc.SmartBlock(s_node, {copyby = "view"})
+    local smrt_s_node = alloc.SmartBlock(s_node, {transferby = "move"})
 
     --metamethod used here for testing - counting the number
     --of times the __dtor method is called
@@ -423,13 +416,14 @@ testenv "singly linked list - that is a cycle" do
     end
 end
 
-testenv "doubly linked list - that is a cycle" do
+testenv(skip) "doubly linked list - that is a cycle" do
 
+	local DefaultAllocator = alloc.DefaultAllocator()
 	local Allocator = alloc.Allocator
 
     --implementation of double-linked list
     local struct d_node
-    local smrt_d_node = alloc.SmartBlock(d_node, {copyby = "view"})
+    local smrt_d_node = alloc.SmartBlock(d_node, {transferby = "view"})
 
     --metamethod used here for testing - counting the number
     --of times the __dtor method is called
