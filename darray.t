@@ -36,7 +36,7 @@ local DArrayRawType = function(typename, T, Dimension, options)
     array.checkperm(Perm)
     
     --generate static array struct
-    local S = alloc.SmartBlock(T)
+    local S = alloc.SmartBlock(T, {transferby = "copy"})
 
     local struct Array{
         data : S
@@ -71,6 +71,7 @@ local DArrayStackBase = function(Array)
 
     local T = Array.traits.eltype
     local N = Array.traits.ndims
+    local S = Array.entries[1].type --type of Array.data
 
     terra Array:length() : size_t
         return self.cumsize[ [N-1] ]
@@ -121,7 +122,6 @@ local DArrayStackBase = function(Array)
     end
 
     --create a new dynamic array
-    --ToDo: fix terralib typechecker to perform raii initializers correctly
     local new = terra(alloc: Allocator, size : tup.ntuple(size_t, N))
         var __size = [ &size_t[N] ](&size)  --we need the size as an array
         var cumsize = getcumsize(@__size)   --compute cumulative sizes
@@ -141,8 +141,6 @@ local DArrayStackBase = function(Array)
     else
         Array.staticmethods.new = new
     end
-
-    local S = alloc.SmartBlock(T)
 
     Array.staticmethods.frombuffer = (
         terra(size : tup.ntuple(size_t, N), data : &T)

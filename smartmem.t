@@ -160,7 +160,6 @@ local SmartBlock = terralib.memoize(function(T, options)
     function block.metamethods.__typename(self)
         return ("SmartBlock(%s)"):format(tostring(T))
     end
-
     base.AbstractBase(block)
 
     -- Cast block from one type to another
@@ -230,18 +229,18 @@ local SmartBlock = terralib.memoize(function(T, options)
 
         --setters and getters
         block.methods.get = terra(self : &block, i : size_t)
-            --err.assert(i < self:size())
+            err.assert(i < self:size())
             return self.ptr[i]
         end
 
         block.methods.set = terra(self : &block, i : size_t, v : T)
-            --err.assert(i < self:size())
+            err.assert(i < self:size())
             self.ptr[i] = v
         end
 
         block.metamethods.__apply = macro(function(self, i)
             return quote
---                err.assert(i < self:size())
+                err.assert(i < self:size())
             in
                 self.ptr[i]
             end
