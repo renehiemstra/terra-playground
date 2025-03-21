@@ -98,11 +98,11 @@ local struct mutex {
 base.AbstractBase(mutex)
 
 terra mutex:__init()
-    var ret = thrd.mutex_init(&self.id, nil)
+    thrd.mutex_init(&self.id, nil)
 end
 
 terra mutex:__dtor()
-    var ret = thrd.mutex_destroy(&self.id)
+    thrd.mutex_destroy(&self.id)
 end
 
 for _, method in pairs{"lock", "trylock", "unlock"} do
@@ -125,16 +125,17 @@ terra lock_guard:__init()
     self.mutex = nil
 end
 
-lock_guard.methods.__copy = (
-    terra(from: &mutex, to: &lock_guard)
-        to.mutex = from
-        to.mutex:lock()
-    end
-)
-
 terra lock_guard:__dtor()
-    self.mutex:unlock()
-    self.mutex = nil
+    if self.mutex ~= nil then
+        self.mutex:unlock()
+        self.mutex = nil
+    end
+end
+
+lock_guard.methods.__copy = terra(from: &mutex, to: &lock_guard)
+    to:__dtor() --reset old resource
+    to.mutex = from
+    to.mutex:lock()
 end
 
 -- Conditions can used to synchronize threads. You can wait until a condition
@@ -149,7 +150,9 @@ terra cond:__init()
 end
 
 terra cond:__dtor()
+    C.printf("before cond:__dtor()\n")
     thrd.cond_destroy(&self.id)
+    C.printf("after cond:__dtor()\n")
 end
 
 -- cond:signal() notifies one waiting thread, broadcast notifies all waiting

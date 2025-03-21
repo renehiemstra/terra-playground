@@ -28,7 +28,7 @@ local FUNC = &opaque -> &opaque
 local struct thread {
     id: pthread.C.pthread_t
     func: FUNC
-    arg: alloc.SmartBlock(int8, {copyby = "move"})
+    arg: alloc.SmartBlock(int8)
 }
 base.AbstractBase(thread)
 
@@ -76,9 +76,6 @@ local terraform submit(allocator, func, arg...)
             arg: arg.type
         }
         local smartpacked = alloc.SmartObject(packed)
-
-        --terralib.ext.addmissing.__move(smartpacked)
-        --smartpacked.methods.__move:printpretty()
         emit quote
             t.func = [
                 terra(parg: &opaque)
@@ -90,7 +87,7 @@ local terraform submit(allocator, func, arg...)
             var smrtpacked = [alloc.SmartObject(packed)].new(allocator)
             smrtpacked.arg = arg
             smrtpacked.func = func
-            t.arg = __move__(smrtpacked)
+            t.arg = smrtpacked --__move is called here automatically
         end
     end
     return t
@@ -103,7 +100,7 @@ terraform thread.staticmethods.new(allocator, func, arg...)
 end
 
 local Alloc = alloc.Allocator
-local blockThread = alloc.SmartBlock(thread, {copyby = "view"})
+local blockThread = alloc.SmartBlock(thread)
 local queueThread = stack.DynamicStack(thread)
 
 -- Queue with thread-safe memory access via mutex
@@ -125,14 +122,9 @@ local ThreadsafeQueue = terralib.memoize(function(T)
         return self.data:size() == 0
     end
 
-    --ToDo: bug happens here iside the lock_quard
     terra threadsafe_queue:push(t: T)
-        --io.printf("lock guard\n")
         var guard: lock_guard = self.mutex
-        --self.mutex:lock()
-        --io.printf("locked guard\n")
         self.data:push(__move__(t))
-        --self.mutex:unlock() 
     end
 
     terra threadsafe_queue:try_pop(t: &T)
@@ -149,11 +141,7 @@ local ThreadsafeQueue = terralib.memoize(function(T)
 
     threadsafe_queue.staticmethods.new = (
         terra(alloc: Alloc, capacity: int64)
-            var q : threadsafe_queue
-            q.data = S.new(alloc, capacity)
-            return q
-            --ToDo: fix initializers for r-value
-            --threadsafe_queue{data=S.new(alloc, capacity)}
+            return threadsafe_queue{data=S.new(alloc, capacity)}
         end
     )
     
@@ -162,7 +150,7 @@ end)
 
 -- A join_threads struct is an abstraction over a block of threads that
 -- automatically joins all threads when the threads go out of scope.
-local block_thread = alloc.SmartBlock(thread, {copyby = "view"})
+local block_thread = alloc.SmartBlock(thread)
 local struct join_threads {
     data: span.Span(thread)
 }
@@ -218,6 +206,7 @@ base.AbstractBase(threadpool)
 -- The computation only continues after the work queue of the thread pool is
 -- empty and no threads are working.
 terra threadpool:barrier()
+    io.printf("done_mutex = %p\n", self.done_mutex)
     var guard: lock_guard = self.done_mutex
     -- A thrd.condition does not implement any logic. This always has to be
     -- checked outside of the condition. Furthermore, condition:wait() should
@@ -228,9 +217,12 @@ terra threadpool:barrier()
             not self.work_queue:isempty()
             or atomics.load(&self.threads_working) > 0
           ) do
+        io.printf("before done_signal\n")
         self.done_signal:wait(&self.done_mutex)
+        io.printf("after done_signal\n")
     end
 end
+threadpool.methods.barrier:printpretty()
 
 terra threadpool:__dtor()
     -- It is crucial to keep the right order in the destructor.
@@ -244,7 +236,7 @@ terra threadpool:__dtor()
     -- work queue that they should continue. At this point, because we called
     -- barrier(), the work queue is empty.
     do
-        var guard: lock_guard = self.done_mutex
+        var guard : lock_guard = self.done_mutex
         while atomics.load(&self.threads_alive) > 0 do
             self.work_signal:broadcast()
         end
@@ -268,8 +260,7 @@ end
 -- access is protected by a mutex as other threads may request new work from it
 -- at the same time.
 terraform threadpool:submit(allocator, func, arg...)
-    var t = submit(allocator, func, unpacktuple(arg))
-    self.work_queue:push(__move__(t))
+    self.work_queue:push(submit(allocator, func, unpacktuple(arg)))
     self.work_signal:signal()
 end
 
@@ -367,7 +358,7 @@ threadpool.staticmethods.new = (
         tp.work_queue = queue_thread.new(alloc, nthreads)
         tp.done = false
         tp.threads = alloc:new(nthreads, sizeof(thread))
-        tp.joiner = join_threads {{&tp.threads(0), nthreads}}
+        tp.joiner.data = {&tp.threads(0), nthreads}
         -- The point of no return. From this point on, we are running the 
         -- program concurrently.
         for i = 0, nthreads do

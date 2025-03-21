@@ -320,15 +320,15 @@ local TracingAllocator = terralib.memoize(function()
 end)
 
 --abstraction of a memory block with type information.
-local SmartObject = terralib.memoize(function(obj, options)
+local SmartObjectGen = terralib.memoize(function(obj, options)
 
     --SmartObject is a special SmartBlock
     local smrtobj = smartmem.SmartBlock(obj, options)
+    smrtobj.isblock = true
 
     --allocate an empty obj
     terraform smrtobj.staticmethods.new(A) where {A}
-        var S: smrtobj = A:new(sizeof(obj), 1)
-        return S
+        return [smrtobj](A:new(sizeof(obj), 1))
     end
 
     smrtobj.metamethods.__getmethod = function(self, methodname)
@@ -353,6 +353,10 @@ local SmartObject = terralib.memoize(function(obj, options)
 
     return smrtobj
 end)
+
+local SmartObject = function(obj, options)
+    return SmartObjectGen(obj, options or {transferby="move"})
+end
 
 return {
     block = smartmem.block,

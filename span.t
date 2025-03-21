@@ -20,6 +20,11 @@ local Span = terralib.memoize(function(T, N)
         len: int64
     }
 
+    terra span:__init()
+        self.ptr = nil
+        self.len = 0
+    end
+
     function span.metamethods.__typename(self)
         return ("Span(%s, %s)"):format(tostring(T), tostring(N))
     end
@@ -37,21 +42,29 @@ local Span = terralib.memoize(function(T, N)
     end)
 
     span.metamethods.__cast = function(from, to, exp)
-        if from:isarray() then
-            assert(from.type == T)
-            local len = from.N
-            if N ~= DYNAMIC_EXTEND then
-                assert(len == N)
+        if from:ispointer() then
+            if from.type:isarray() then
+                local Array = from.type
+                assert(Array.type == T)
+                local len = Array.N
+                if N ~= DYNAMIC_EXTEND then
+                    assert(len == N)
+                end
+                return `span {&(@exp)[0], len}
+            else
+                assert(from.type == T)
+                return `span {exp, [(N == DYNAMIC_EXTEND) and 1 or N]}
             end
-            return `span {&[exp][0], from.N}
-        elseif from:ispointer() then
-            assert(from.type == T)
-            return `span {exp, [(N == DYNAMIC_EXTEND) and 1 or N]}
         elseif tpl.istuple(from) then
             local types = tpl.unpacktuple(from)
             local len = #from.entries
             if len == 2 and types[1] == &T then
-                return `span {exp._0, exp._1}
+                return quote
+                    var tmp = exp
+
+                in
+                    span {tmp._0, tmp._1}
+                end
             else
                 if N ~= DYNAMIC_EXTEND then
                     assert(len == N)

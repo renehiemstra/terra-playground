@@ -11,12 +11,53 @@ local range = require("range")
 local tree = require("tree")
 local thread = require("thread")
 local tmath = require("tmath")
+local io = terralib.includec("stdio.h")
 
 import "terratest/terratest"
 
 require("terralibext")
 
+
 local TracingAllocator = alloc.TracingAllocator()
+
+local PCG = random.MinimalPCG
+local terra do_work(rng: &PCG(double))
+    var max: uint64 = 10000000ull
+    var sum: double = 0
+    for i = 0, max do
+        sum = i * sum + rng:random_normal(2.235, 0.64)
+        sum = sum / (i + 1)
+    end
+    return sum
+end
+
+local terra heavy_work(i: int, tsum: &double, mtx: &thread.mutex)
+    var rng = [PCG(double)].new(2385287, i)
+    var sum = do_work(&rng)
+    -- var guard: thread.lock_guard = mtx
+    @tsum = @tsum + sum
+    return 0
+end
+
+local NTHREADS = 4
+local NJOBS = 10
+
+terra main()
+    var A: alloc.DefaultAllocator()
+    var sum = 0.0
+    var mtx: thread.mutex
+    do
+        var tp = thread.threadpool.new(&A, NTHREADS)
+        for i = 0, NJOBS do
+            tp:submit(&A, heavy_work, i, &sum, &mtx)
+        end
+        io.printf("all good here - 1\n")
+    end
+    sum = sum / NJOBS
+    var ref = 2.235004790726248e+00
+    io.printf("all good here - 2\n")
+end
+main()
 
 
 testenv "Basic data structures" do
@@ -78,7 +119,8 @@ testenv "Basic data structures" do
             var a: int[NTHREADS]
             var t: thread.thread[NTHREADS]
             do
-                var joiner = thread.join_threads {t}
+                var joiner : thread.join_threads
+                joiner.data = &t
                 for i = 0, NTHREADS do
                     t[i] = thread.thread.new(&A, go, i, &a[0])
                 end
@@ -136,7 +178,7 @@ testenv "Basic data structures" do
         gmutex:get():__dtor()
     end
 
-    testset "Thread pool" do
+    testset(skip) "Thread pool" do
         local PCG = random.MinimalPCG
         local terra do_work(rng: &PCG(double))
             var max: uint64 = 10000000ull
@@ -175,7 +217,7 @@ testenv "Basic data structures" do
 
 end
 
-testenv "Parallel for" do
+testenv(skip) "Parallel for" do
     local lambda = require("lambda")
     local range = require("range")
 

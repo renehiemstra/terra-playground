@@ -30,6 +30,14 @@ local function ismanaged(args)
     return false
 end
 
+--set type traits
+local function BaseTraits(block, T)
+    block.isblock = true
+    block.type = block
+    block.traits.eltype = T
+    block.elsize = T==opaque and 1 or sizeof(T)
+end
+
 local function Base(block, T, options)
 
     local options = terralib.newlist(options)
@@ -40,12 +48,6 @@ local function Base(block, T, options)
         valid_transfer[options.transferby],
         "Provided invalid option " .. options.transferby .. " for copy constructor"
     )
-
-    --type traits
-    block.isblock = true
-    block.type = block
-    block.traits.eltype = T
-    block.elsize = T==opaque and 1 or sizeof(T)
 
     block.methods.getdataptr = terra(self : &block)
         return self.ptr
@@ -135,6 +137,7 @@ end
 base.AbstractBase(block)
 
 --add base functionality
+BaseTraits(block, opaque)
 Base(block, opaque)
 
 --__dtor for opaque memory block
@@ -148,8 +151,7 @@ end
 block:complete()
 
 
---abstraction of a memory block with type information.
-local SmartBlock = terralib.memoize(function(T, options)
+local SmartBlockGen = terralib.memoize(function(T, options)
 
     local struct block{
         ptr : &T
@@ -161,6 +163,9 @@ local SmartBlock = terralib.memoize(function(T, options)
         return ("SmartBlock(%s)"):format(tostring(T))
     end
     base.AbstractBase(block)
+
+    --type trait
+    BaseTraits(block, T)
 
     -- Cast block from one type to another
     function block.metamethods.__cast(from, to, exp)
@@ -174,6 +179,8 @@ local SmartBlock = terralib.memoize(function(T, options)
         local byvalue, to, from = passbyvalue(to, from)        
         --exit early if types do not match
         if not to.isblock or not from.isblock then
+            print(tostring(to) .. " and " .. tostring(to.isblock))
+            print(tostring(from) .. " and " .. tostring(from.isblock))
             error("Arguments to cast need to be of generic type SmartBlock.")
         end
         --perform cast
@@ -337,6 +344,13 @@ local SmartBlock = terralib.memoize(function(T, options)
 	return block
 end)
 
+--abstraction of a memory block with type information.
+--Since `SmartBlockGen` is memoized we need the case 
+--of `options=nil` returns the same type as the case 
+--of default options `{transferby = "move"}`.
+local SmartBlock = function(T, options)
+    return SmartBlockGen(T, options or {transferby = "move"})
+end
 
 return {
     block = block,
