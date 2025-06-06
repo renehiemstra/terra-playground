@@ -16,6 +16,7 @@ local base = require("base")
 local interface = require("interface")
 local range = require("range")
 local err = require("assert")
+local serde = require("serde")
 
 local size_t = uint64
 local u8 = uint8
@@ -128,13 +129,9 @@ block:complete()
 
 
 --abstraction of a memory block with type information.
-local SmartBlock
-SmartBlock = terralib.memoize(function(T, options)
-
-    --check optional input
-    assert(options and type(options.copyable)=="boolean",
-        "Invalid option. Please provide {copyable = true / false}"
-    )
+local smartblock_type_generator = terralib.memoize(function(T, options_str)
+    local ok, options = serde.deserialize_table(options_str)
+    assert(ok)
 
     --is the type copyable? Default to false.
     local copyable = options.copyable or false
@@ -327,8 +324,23 @@ SmartBlock = terralib.memoize(function(T, options)
 
     end --__staticinitialize
 
-	return block
+    return block
 end)
+
+local SmartBlock = function(T, options)
+
+    --check optional input
+    local options = options or {copyable=false}
+    assert(type(options.copyable)=="boolean",
+        "Invalid option. Please provide {copyable = true / false}"
+    )
+
+    --Tables are passed by reference in Lua. So the options table needs 
+    --to be serialized to make sure the same type is returned with the 
+    --same table input
+    local options_str = serde.serialize_table(options)
+    return smartblock_type_generator(T, options_str)
+end
 
 
 return {

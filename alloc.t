@@ -26,6 +26,8 @@ if rawget(C, "stdout") == nil and rawget(C, "__stdoutp") ~= nil then
     rawset(C, "stdout", C.__stdoutp)
 end 
 
+require "terralibext"
+
 local atomics = require("atomics")
 local base = require("base")
 local serde = require("serde")
@@ -144,101 +146,100 @@ local function AllocatorBase(A)
     end
 end
 
+local defaultallocator_type_generator = terralib.memoize(function(options_str)
+    local ok, options = serde.deserialize_table(options_str)
+    assert(ok)
+    
+    local Alignment = options.Alignment
+    local Initialize = options.Initialize
+    local AbortOnError = options.AbortOnError
+
+    local default = (
+        terralib.types.newstruct(
+            (
+                "LibC(Alignment=%d, Initialize=%s, AbortOnError=%s)"
+            ):format(Alignment, Initialize, AbortOnError)
+        )
+    )
+    default:complete()
+
+    terra default:__allocate(blk: &block, elsize: size_t, counter: size_t)
+        var sz = elsize * counter
+        var ptr: &opaque
+        escape
+            if Alignment ~= 0 then
+                emit quote 
+                    var newsz = round_to_aligned(sz, Alignment) / elsize
+                    ptr = C.aligned_alloc(Alignment, newsz * elsize) 
+                end
+            else
+                emit quote ptr = C.malloc(sz) end
+            end
+            if AbortOnError then
+                emit `abort_on_error(ptr, sz)
+            end
+            if Initialize then
+                emit `C.memset(ptr, 0, sz)
+            end
+        end
+        blk.ptr = ptr
+        blk.nbytes = sz
+    end
+
+    terra default:__reallocate(
+        blk: &block,
+        elsize: size_t,
+        newcounter: size_t
+    )
+        var sz = elsize * newcounter
+        var ptr: &opaque
+        escape
+            if Alignment ~= 0 then
+                emit quote
+                    var newsz = elsize * (round_to_aligned(sz, Alignment) / elsize)
+                    ptr = C.aligned_alloc(Alignment, newsz)
+                    C.memset(ptr, 0, newsz)
+                    C.memcpy(ptr, blk.ptr, blk.nbytes)
+                    C.free(blk.ptr)
+                end
+            else
+                emit quote 
+                    ptr = C.realloc(blk.ptr, sz)
+                    C.memset([&uint8](ptr)+blk.nbytes, 0, sz - blk.nbytes)
+                end
+            end
+            if AbortOnError then
+                emit `abort_on_error(ptr, sz)
+            end
+        end
+        blk.ptr = ptr
+        blk.nbytes = sz
+    end
+
+    terra default:__deallocate(blk : &block)
+        C.free(blk.ptr)
+    end
+
+    AllocatorBase(default)
+    assert(Allocator:isimplemented(default))
+
+    return default
+end)
+
 --implementation of the default allocator using malloc and free.
 local DefaultAllocator = function(options)
     options = options or {}
     options.Alignment = options.Alignment or 0
     options.Initialize = options.Initialize or false
-    options.AbortOnError = options.AbortOneError or true
+    options.AbortOnError = options.AbortOnError or true
 
     assert(options.Alignment >= 0 and options.Alignment % 8 == 0)
     assert(type(options.Initialize) == "boolean")
     assert(type(options.AbortOnError) == "boolean")
 
-    local generate_type = terralib.memoize(function(options_str)
-        local ok, options = serde.deserialize_table(options_str)
-        assert(ok)
-        local Alignment = options.Alignment
-        local Initialize = options.Initialize
-        local AbortOnError = options.AbortOnError
-
-        local default = (
-            terralib.types.newstruct(
-                (
-                    "LibC(Alignment=%d, Initialize=%s, AbortOnError=%s)"
-                ):format(Alignment, Initialize, AbortOnError)
-            )
-        )
-        default:complete()
-
-        terra default:__allocate(blk: &block, elsize: size_t, counter: size_t)
-            var sz = elsize * counter
-            var ptr: &opaque
-            escape
-                if Alignment ~= 0 then
-                    emit quote 
-                        var newsz = round_to_aligned(sz, Alignment) / elsize
-                        ptr = C.aligned_alloc(Alignment, newsz * elsize) 
-                    end
-                else
-                    emit quote ptr = C.malloc(sz) end
-                end
-                if AbortOnError then
-                    emit `abort_on_error(ptr, sz)
-                end
-                if Initialize then
-                    emit `C.memset(ptr, 0, sz)
-                end
-            end
-            blk.ptr = ptr
-            blk.nbytes = sz
-        end
-
-        terra default:__reallocate(
-            blk: &block,
-            elsize: size_t,
-            newcounter: size_t
-        )
-            var sz = elsize * newcounter
-            var ptr: &opaque
-            escape
-                if Alignment ~= 0 then
-                    emit quote
-                        var newsz = elsize * (round_to_aligned(sz, Alignment) / elsize)
-                        ptr = C.aligned_alloc(Alignment, newsz)
-                        C.memset(ptr, 0, newsz)
-                        C.memcpy(ptr, blk.ptr, blk.nbytes)
-                        C.free(blk.ptr)
-                    end
-                else
-                    emit quote 
-                        ptr = C.realloc(blk.ptr, sz)
-                        C.memset([&uint8](ptr)+blk.nbytes, 0, sz - blk.nbytes)
-                    end
-                end
-                if AbortOnError then
-                    emit `abort_on_error(ptr, sz)
-                end
-            end
-            blk.ptr = ptr
-            blk.nbytes = sz
-        end
-
-        terra default:__deallocate(blk : &block)
-            C.free(blk.ptr)
-        end
-
-        AllocatorBase(default)
-        assert(Allocator:isimplemented(default))
-
-        return default
-    end)
-
     local options_str = serde.serialize_table(options)
-    return generate_type(options_str)
+    return defaultallocator_type_generator(options_str)
 end
-
-require "terralibext"
 
 local TracingAllocator = terralib.memoize(function()
     local mutex = pthread.mutex
@@ -321,8 +322,10 @@ local TracingAllocator = terralib.memoize(function()
     return tracing
 end)
 
---abstraction of a memory block with type information.
-local SmartObject = terralib.memoize(function(obj, options)
+--Abstraction of a single object that is stored on the heap.
+--Do not memoize this function (memoization is done in SmartBlock)
+--Remember, memoization takes special care with options
+local SmartObject = function(obj, options)
 
     --SmartObject is a special SmartBlock
     local smrtobj = smartmem.SmartBlock(obj, options)
@@ -354,7 +357,7 @@ local SmartObject = terralib.memoize(function(obj, options)
     end)
 
     return smrtobj
-end)
+end
 
 return {
     block = smartmem.block,

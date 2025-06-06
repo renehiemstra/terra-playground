@@ -8,8 +8,16 @@
 import "terratest/terratest"
 
 local alloc = require("alloc")
-local DefaultAllocator = alloc.DefaultAllocator()
+
+local C = terralib.includec("stdio.h")
+
+--test serialization of options table in Lua for the 
+--default allocator
+assert(alloc.DefaultAllocator({Alignment = 0}) == alloc.DefaultAllocator())
+assert(alloc.DefaultAllocator({Alignment = 64}) ~= alloc.DefaultAllocator())
+
 local TracingAllocator = alloc.TracingAllocator()
+local __dtor_counter = global(int, 0)
 
 for _, alignment in ipairs{0, 64} do
 
@@ -21,9 +29,11 @@ for _, alignment in ipairs{0, 64} do
 
         local doubles = alloc.SmartBlock(double, {copyable = false})
 
+        --test serialization of options table in Lua for the SmartBlock
+        assert(doubles == alloc.SmartBlock(double))
+
         --metamethod used here for testing - counting the number
         --of times the __dtor method is called
-        local __dtor_counter = global(int, 0)
         doubles.metamethods.__dtor = macro(function(self)
             return quote
                 if self:owns_resource() then
@@ -31,6 +41,7 @@ for _, alignment in ipairs{0, 64} do
                 end
             end
         end)
+        local terra get_dtor_counter() return __dtor_counter end
 
         terracode
             var A : DefaultAllocator
@@ -152,8 +163,9 @@ for _, alignment in ipairs{0, 64} do
                     __dtor_counter = 0
                     var y : doubles = A:new(sizeof(double), 2)
                 end
+                C.printf("value: %d\n", __dtor_counter)
             end
-            test __dtor_counter==1
+            test get_dtor_counter()==1
         end
 
         testset "allocator - owns" do
@@ -210,6 +222,7 @@ for _, alignment in ipairs{0, 64} do
     end
 
     testenv(alignment) "Tracing allocator" do
+
         local std = {}
         std.io = terralib.includec("stdio.h")
         std.lib = terralib.includec("stdlib.h")
@@ -276,6 +289,8 @@ for _, alignment in ipairs{0, 64} do
 end
 
 import "terraform"
+
+local DefaultAllocator = alloc.DefaultAllocator()
 
 testenv "SmartObject" do
 
