@@ -164,16 +164,21 @@ local smartblock_type_generator = terralib.memoize(function(T, options_str)
         end
         --perform cast
         if byvalue then
-            --case when to.eltype is a managed type (implements a '__dtor')
-            if terralib.ext.ismanaged(to.traits.eltype) then
+            --case when and opaque block is cast to a SmartBlock with a managed element 
+            --type (implements a '__dtor')
+            --note: the opaque memory is first cast to the new (managed) element type
+            --and is then initialized with the '__init' method to make sure that the 
+            --uninitialized memory is initialized with the correct initializer.
+            if terralib.ext.ismanaged(to.traits.eltype) and from.traits.eltype==opaque then
                 return quote
                     --we get a handle to the object, which means we get an lvalue that 
                     --does not own the resource, so it's '__dtor' will not be called
                     var tmp = __handle__(exp)
                     --debug check if sizes are compatible, that is, is the
                     --remainder zero after integer division
-                    --err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
-                    --loop over all elements of blk and initialize their entries 
+                    err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
+                    --loop over all elements of blk and initialize their entries. This 
+                    --is done to correctly initialize the uninitialized memory.
                     var size = tmp:size_in_bytes() / [to.elsize]
                     var ptr = [&to.traits.eltype](tmp.ptr)
                     for i = 0, size do
