@@ -21,6 +21,7 @@ local serde = require("serde")
 local size_t = uint64
 local u8 = uint8
 
+import "terraform"
 
 local function Base(block, T, options)
 
@@ -347,8 +348,50 @@ local SmartBlock = function(T, options)
     return smartblock_type_generator(T, options_str)
 end
 
+--Abstraction of a single object that is stored on the heap.
+--Do not memoize this function (memoization is done in SmartBlock)
+--Remember, memoization requires that 'option' tables are serialized.
+--This is done in 'SmartBlock'
+local SmartObject = function(obj, options)
+
+    --SmartObject is a special SmartBlock that has one element
+    --see `new` method below
+    --it's a heap object that has direct access to the fields of
+    --the 'obj' type (using __entrymissing and __methodmissing)
+    local smrtobj = SmartBlock(obj, options)
+
+    --allocate an empty obj
+    terraform smrtobj.staticmethods.new(A) where {A}
+        var S: smrtobj = A:new(sizeof(obj), 1)
+        return S
+    end
+
+    smrtobj.metamethods.__getmethod = function(self, methodname)
+        local fnlike = self.methods[methodname] or smrtobj.staticmethods[methodname]
+        --if no implementation is found try __methodmissing
+        if not fnlike and terralib.ismacro(self.metamethods.__methodmissing) then
+            fnlike = terralib.internalmacro(function(ctx, tree, ...)
+                return self.metamethods.__methodmissing:run(ctx, tree, methodname, ...)
+            end)
+        end
+        return fnlike
+    end
+
+    smrtobj.metamethods.__entrymissing = macro(function(entryname, self)
+        return `self.ptr.[entryname]
+    end)
+
+    smrtobj.metamethods.__methodmissing = macro(function(method, self, ...)
+        local args = terralib.newlist{...}
+        return `self.ptr:[method](args)
+    end)
+
+    return smrtobj
+end
+
 
 return {
     block = block,
-    SmartBlock = SmartBlock
+    SmartBlock = SmartBlock,
+    SmartObject = SmartObject
 }
