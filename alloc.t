@@ -146,6 +146,10 @@ local function AllocatorBase(A)
     end
 end
 
+--Implementation of the default allocator that uses 'free', 'malloc' and 'realloc'
+--from C's 'stdlib'
+--The definition is memoized here and requires serialized input. The 'generator'
+--is embedded in 'DefaultAllocator' below.
 local defaultallocator_type_generator = terralib.memoize(function(options_str)
     local ok, options = serde.deserialize_table(options_str)
     assert(ok)
@@ -237,6 +241,9 @@ local DefaultAllocator = function(options)
     assert(type(options.Initialize) == "boolean")
     assert(type(options.AbortOnError) == "boolean")
 
+    --Tables are passed by reference in Lua. So the options table needs 
+    --to be serialized to make sure the same type is returned with the 
+    --same table input
     local options_str = serde.serialize_table(options)
     return defaultallocator_type_generator(options_str)
 end
@@ -324,10 +331,14 @@ end)
 
 --Abstraction of a single object that is stored on the heap.
 --Do not memoize this function (memoization is done in SmartBlock)
---Remember, memoization takes special care with options
+--Remember, memoization requires that 'option' tables are serialized.
+--This is done in 'SmartBlock'
 local SmartObject = function(obj, options)
 
-    --SmartObject is a special SmartBlock
+    --SmartObject is a special SmartBlock that has one element
+    --see `new` method below
+    --it's a heap object that has direct access to the fields of
+    --the 'obj' type (using __entrymissing and __methodmissing)
     local smrtobj = smartmem.SmartBlock(obj, options)
 
     --allocate an empty obj
