@@ -18,6 +18,7 @@ local stack = require("stack")
 local mat = require("matrix")
 local range = require("range")
 local tup = require("tuple")
+local serde = require("serde")
 local parametrized = require("parametrized")
 
 local luafun = require("fun")
@@ -29,18 +30,26 @@ local size_t = uint64
 __boundscheck__ = true
 
 
+--'DArrayRawType' is used by all dynamic array implementations. So we don't want
+--to memoize this function.
 local DArrayRawType = function(typename, T, Dimension, options)
 
     --check input
     assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
 
+    options = options or {}
     --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    local Perm = options and options.perm and terralib.newlist(options.perm) or array.defaultperm(Dimension)
-    array.checkperm(Perm)
-    
-    --generate static array struct
-    local S = alloc.SmartBlock(T)
+    options.perm = options.perm and terralib.newlist(options.perm) or array.defaultperm(Dimension)
+    array.checkperm(options.perm)
+    options.copyable = options.copyable or false
+    assert(type(options.copyable)=="boolean",
+        "Invalid option. Please provide {copyable = true / false}"
+    )
 
+    --smart block
+    local S = alloc.SmartBlock(T, options)
+
+    --generate dynamic array struct
     local struct Array{
         data : S
         size : size_t[Dimension]
@@ -51,7 +60,8 @@ local DArrayRawType = function(typename, T, Dimension, options)
     local traits = {}
     traits.eltype = T
     traits.ndims = Dimension
-    traits.perm = Perm
+    traits.perm = options.perm
+    traits.copyable = true
 
     --__typename needs to be called before base.AbstractBase due to some caching 
     --issue with the typename.
@@ -168,8 +178,6 @@ local DArrayStackBase = function(Array)
         Array.methods.resize = resize
     end
 
-    local S = alloc.SmartBlock(T)
-
     Array.methods.like = terra(self: &Array)
         var A = self.data.alloc
         var newself: Array
@@ -180,12 +188,15 @@ local DArrayStackBase = function(Array)
         return newself
     end
 
+    local S = alloc.SmartBlock(T, {copyable=Array.traits.copyable})
+    S:complete()
+    
     Array.staticmethods.frombuffer = (
         terra(size : tup.ntuple(size_t, N), data : &T)
             var __size = [ &size_t[N] ](&size)  --we need the size as an array
             var cumsize = getcumsize(@__size)   --compute cumulative sizes
             var length = cumsize[N-1]           --length is last entry in 'cumsum'
-            return Array{S.frombuffer(length, data), @__size, cumsize}
+            return Array{__move__(S.frombuffer(length, data)), @__size, cumsize}
         end
     )
 
@@ -336,8 +347,10 @@ local DArrayIteratorBase = function(Array)
  
 end
 
-local DynamicArray = function(T, Dimension, options)
-    
+local dynamicarray_type_generator = terralib.memoize(function(T, Dimension, options_str)
+    local ok, options = serde.deserialize_table(options_str)
+    assert(ok)
+
     --print typename
     local function typename(traits)
         local sizes = "{"
@@ -356,35 +369,51 @@ local DynamicArray = function(T, Dimension, options)
     DArrayStackBase(Array)
     DArrayVectorBase(Array)
     DArrayIteratorBase(Array)
-
+    
     return Array
+end)
+
+local DynamicArray = function(T, Dimension, options)
+    --Tables are passed by reference in Lua. So the options table needs 
+    --to be serialized to make sure memoization takes effect.
+    local options_str = serde.serialize_table(options)
+    return dynamicarray_type_generator(T, Dimension, options_str)
 end
 
---DynamicVector is reimplemented separately from 'Array' because otherwise
---DynamicVector.metamethods.__typename is memoized incorrectly
-local DynamicVector = parametrized.type(function(T)
+local dynamicvector_type_generator = terralib.memoize(function(T, options_str)
+    local ok, options = serde.deserialize_table(options_str)
+    assert(ok)
     
+    --print typename
     local function typename(traits)
         return ("DynamicVector(%s)"):format(tostring(T))
     end
 
     --generate the raw type
-    local DVector = DArrayRawType(typename, T, 1)
-
+    local Vector = DArrayRawType(typename, T, 1, options)
+    
     --implement interfaces
-    DArrayStackBase(DVector)
-    DArrayVectorBase(DVector)
-    DArrayIteratorBase(DVector)
-
-    return DVector
+    DArrayStackBase(Vector)
+    DArrayVectorBase(Vector)
+    DArrayIteratorBase(Vector)
+    
+    return Vector
 end)
 
-local TransposedDMatrix = function(ParentMatrix)
+local DynamicVector = function(T, options)
+    --Tables are passed by reference in Lua. So the options table needs 
+    --to be serialized to make sure memoization takes effect.
+    local options_str = serde.serialize_table(options)
+    return dynamicvector_type_generator(T, options_str)
+end
+
+local TransposedDMatrix = terralib.memoize(function(ParentMatrix)
 
     assert(ParentMatrix.traits.ndims == 2)
 
     local T = ParentMatrix.traits.eltype
     local Perm = terralib.newlist{ParentMatrix.traits.perm[2], ParentMatrix.traits.perm[1]}
+    local copyable = ParentMatrix.traits.copyable
 
     local typename
     if concepts.Complex(T) then
@@ -397,7 +426,7 @@ local TransposedDMatrix = function(ParentMatrix)
         end
     end
 
-    local DMatrix = DArrayRawType(typename, T, 2, {perm=Perm})
+    local DMatrix = DArrayRawType(typename, T, 2, {perm=Perm, copyable=copyable})
 
     --trait to signal that this is a transposed view
     DMatrix.traits.istransposed = true
@@ -429,11 +458,13 @@ local TransposedDMatrix = function(ParentMatrix)
     DArrayMatrixBase(DMatrix)
 
     return DMatrix
-end
+end)
 
 
-local DynamicMatrix = parametrized.type(function(T, options)
-
+local dynamicmatrix_type_generator = parametrized.type(function(T, options_str)
+    local ok, options = serde.deserialize_table(options_str)
+    assert(ok)
+    
     local function typename(traits)
         return ("DynamicMatrix(%s)"):format(tostring(T))
     end
@@ -464,6 +495,13 @@ local DynamicMatrix = parametrized.type(function(T, options)
                               .. " does not implement the matrix interface")
 
     return DMatrix
+end)
+
+local DynamicMatrix = parametrized.type(function(T, options)
+    --Tables are passed by reference in Lua. So the options table needs 
+    --to be serialized to make sure memoization takes effect.
+    local options_str = serde.serialize_table(options)
+    return dynamicmatrix_type_generator(T, options_str)
 end)
 
 return {

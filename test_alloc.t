@@ -102,6 +102,18 @@ for _, alignment in ipairs{0, 64} do
             test x:isempty()
         end
 
+        testset "from buffer" do
+            terracode
+                var y : doubles = A:new(sizeof(double), 2)
+                y:set(0, 1.0)
+                y:set(1, 2.0)
+                var z = doubles.frombuffer(2, y:getdataptr())
+            end
+            test y:owns_resource() and z:borrows_resource()
+            test y:size() == 2 and y:get(0) == 1.0 and y:get(1) == 2.0
+            test z:size() == 2 and z:get(0) == 1.0 and z:get(1) == 2.0
+        end
+
         local integers = alloc.SmartBlock(int, {copyable = false})
 
         testset "move-semantics of smart block" do
