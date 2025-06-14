@@ -19,9 +19,8 @@ local mat = require("matrix")
 local range = require("range")
 local tup = require("tuple")
 local serde = require("serde")
-local parametrized = require("parametrized")
-
 local luafun = require("fun")
+local parametrized = require("parametrized")
 
 local Allocator = alloc.Allocator
 local size_t = uint64
@@ -34,6 +33,13 @@ __boundscheck__ = true
 --to memoize this function.
 local DArrayRawType = function(typename, T, Dimension, options)
 
+    --check input
+    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
+    assert(Dimension%1==0, "ArgumentError: expected an integer.")
+    assert(type(options.copyable)=="boolean",
+        "Invalid option. Please provide {copyable = true / false}"
+    )
+    
     --smart block
     local S = alloc.SmartBlock(T, options)
     S:complete()
@@ -368,21 +374,14 @@ end)
 
 local DynamicArray = function(T, Dimension, options)
 
-    --check input
-    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
-    assert(Dimension%1==0, "ArgumentError: expected an integer.")
-
     --check optional input
     local options = options or {}
     
     --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    options.perm = options.perm and options.perm or array.defaultperm(Dimension)
+    options.perm = options.perm or array.defaultperm(Dimension)
     array.checkperm(options.perm, Dimension)
     --check copyable
     options.copyable = options.copyable or false
-    assert(type(options.copyable)=="boolean",
-        "Invalid option. Please provide {copyable = true / false}"
-    )
 
     --Tables are passed by reference in Lua. So the options table needs 
     --to be serialized to make sure memoization takes effect.
@@ -411,33 +410,28 @@ local dynamicvector_type_generator = parametrized.type(function(T, options_str)
 end)
 
 local DynamicVector = function(T, options)
-    --check input
-    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
-    
+
     --check optional input
     local options = options or {}
     
     --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    options.perm = options.perm and terralib.newlist(options.perm) or array.defaultperm(1)
+    options.perm = options.perm or array.defaultperm(1)
     array.checkperm(options.perm, 1)
-
     --check copyable
     options.copyable = options.copyable or false
-    assert(type(options.copyable)=="boolean",
-        "Invalid option. Please provide {copyable = true / false}"
-    )
+
     --Tables are passed by reference in Lua. So the options table needs 
     --to be serialized to make sure memoization takes effect.
     local options_str = serde.serialize_table(options)
     return dynamicvector_type_generator(T, options_str)
 end
 
-local TransposedDMatrix = parametrized.type(function(ParentMatrix)
+local TransposedDMatrix = terralib.memoize(function(ParentMatrix)
 
     assert(ParentMatrix.traits.ndims == 2)
 
     local T = ParentMatrix.traits.eltype
-    local Perm = terralib.newlist{ParentMatrix.traits.perm[2], ParentMatrix.traits.perm[1]}
+    local Perm = {ParentMatrix.traits.perm[2], ParentMatrix.traits.perm[1]}
     local copyable = ParentMatrix.traits.copyable
 
     local typename
@@ -521,28 +515,21 @@ local dynamicmatrix_type_generator = parametrized.type(function(T, options_str)
     return DMatrix
 end)
 
-local DynamicMatrix = parametrized.type(function(T, options)
-    --check input
-    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
-    
-    --check optional input
-    local options = options or {}
-    
+local DynamicMatrix = function(T, options)
+
     --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
+    local options = options or {}
     options.perm = options.perm or array.defaultperm(2)
     array.checkperm(options.perm, 2)
 
     --check copyable
     options.copyable = options.copyable or false
-    assert(type(options.copyable)=="boolean",
-        "Invalid option. Please provide {copyable = true / false}"
-    )
 
     --Tables are passed by reference in Lua. So the options table needs 
     --to be serialized to make sure memoization takes effect.
     local options_str = serde.serialize_table(options)
     return dynamicmatrix_type_generator(T, options_str)
-end)
+end
 
 return {
     DynamicArray = DynamicArray,
