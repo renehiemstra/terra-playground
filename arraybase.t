@@ -71,16 +71,15 @@ local getarrayentryfromexpressiontree = function(args, multiindex)
 end
 
 local function defaultperm(dimension)
-    return terralib.newlist(
-        luafun.totable(
+    return luafun.totable(
             luafun.range(dimension, 1, -1)
         )
-    )
 end
 
-local function checkperm(perm)
+local function checkperm(perm, dim)
     assert(terralib.israwlist(perm), "ArgumentError: input should be a raw list.")
-    local linrange = perm:mapi(function(i,v) return i end)
+    assert(#perm == dim, "ArgumentError: permutation incorrect dimension.")
+    local linrange = luafun.totable(luafun.range(#perm))
     for i,v in ipairs(perm) do
         linrange[v] = nil
     end
@@ -125,7 +124,7 @@ local ArrayBase = function(Array)
     --    .
     --    .
     --    Size[D] * Size[D-1] * ... * Size[2] * i_{1}
-    local Indices = rowmajorperm:map(function(v) return symbol(size_t) end)
+    local Indices = luafun.totable(luafun.map(function(v) return symbol(size_t) end, rowmajorperm))
 
     --cumulative sizes as a terra method
     if not Array.methods.cumsize then
@@ -365,8 +364,9 @@ local ArrayBase = function(Array)
     else
         printarray = function(self, name)
             local unitranges = getunitranges(N-2) --terra function that returns the first N-2 unitranges
-            local p = rowmajorperm:filteri(function(i,v) return i <= N - 2 end)
-            local ntimes = p:mapi(function(i,v) return "%d" end)
+            --local p = rowmajorperm:filteri(function(i,v) return i <= N - 2 end)
+            --local ntimes = p:mapi(function(i,v) return "%d" end)
+            local ntimes = luafun.map(function(i,v) return "%d" end, luafun.filter(function(i,v) return i <= N - 2 end, rowmajorperm))
             local slice = name .."[" .. table.concat(ntimes,",") .. ", :, :] = \n"
             return quote
                 var K = unitranges(&self)

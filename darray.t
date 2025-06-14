@@ -34,20 +34,9 @@ __boundscheck__ = true
 --to memoize this function.
 local DArrayRawType = function(typename, T, Dimension, options)
 
-    --check input
-    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
-
-    options = options or {}
-    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    options.perm = options.perm and terralib.newlist(options.perm) or array.defaultperm(Dimension)
-    array.checkperm(options.perm)
-    options.copyable = options.copyable or false
-    assert(type(options.copyable)=="boolean",
-        "Invalid option. Please provide {copyable = true / false}"
-    )
-
     --smart block
     local S = alloc.SmartBlock(T, options)
+    S:complete()
 
     --generate dynamic array struct
     local struct Array{
@@ -68,6 +57,12 @@ local DArrayRawType = function(typename, T, Dimension, options)
     function Array.metamethods.__typename(self)
         return typename(traits)
     end
+
+    --autogenerate RAII methods before we add base-functionality
+    terralib.ext.addmissing.__init(Array)
+    terralib.ext.addmissing.__dtor(Array)
+    terralib.ext.addmissing.__move(Array)
+    if traits.copyable then terralib.ext.addmissing.__copy(Array) end
 
     --add base functionality - traits, templates table, etc
     base.AbstractBase(Array)
@@ -285,7 +280,6 @@ local DArrayVectorBase = function(Array)
     assert(CVector(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CVector))
 end
 
-
 local DArrayMatrixBase = function(DMatrix)
     
     assert(DMatrix.traits.ndims == 2) --these methods are only for matrices
@@ -347,10 +341,9 @@ local DArrayIteratorBase = function(Array)
  
 end
 
-local dynamicarray_type_generator = terralib.memoize(function(T, Dimension, options_str)
+local dynamicarray_type_generator = parametrized.type(function(T, Dimension, options_str)
     local ok, options = serde.deserialize_table(options_str)
     assert(ok)
-
     --print typename
     local function typename(traits)
         local sizes = "{"
@@ -374,13 +367,30 @@ local dynamicarray_type_generator = terralib.memoize(function(T, Dimension, opti
 end)
 
 local DynamicArray = function(T, Dimension, options)
+
+    --check input
+    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
+    assert(Dimension%1==0, "ArgumentError: expected an integer.")
+
+    --check optional input
+    local options = options or {}
+    
+    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
+    options.perm = options.perm and options.perm or array.defaultperm(Dimension)
+    array.checkperm(options.perm, Dimension)
+    --check copyable
+    options.copyable = options.copyable or false
+    assert(type(options.copyable)=="boolean",
+        "Invalid option. Please provide {copyable = true / false}"
+    )
+
     --Tables are passed by reference in Lua. So the options table needs 
     --to be serialized to make sure memoization takes effect.
     local options_str = serde.serialize_table(options)
     return dynamicarray_type_generator(T, Dimension, options_str)
 end
 
-local dynamicvector_type_generator = terralib.memoize(function(T, options_str)
+local dynamicvector_type_generator = parametrized.type(function(T, options_str)
     local ok, options = serde.deserialize_table(options_str)
     assert(ok)
     
@@ -401,13 +411,28 @@ local dynamicvector_type_generator = terralib.memoize(function(T, options_str)
 end)
 
 local DynamicVector = function(T, options)
+    --check input
+    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
+    
+    --check optional input
+    local options = options or {}
+    
+    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
+    options.perm = options.perm and terralib.newlist(options.perm) or array.defaultperm(1)
+    array.checkperm(options.perm, 1)
+
+    --check copyable
+    options.copyable = options.copyable or false
+    assert(type(options.copyable)=="boolean",
+        "Invalid option. Please provide {copyable = true / false}"
+    )
     --Tables are passed by reference in Lua. So the options table needs 
     --to be serialized to make sure memoization takes effect.
     local options_str = serde.serialize_table(options)
     return dynamicvector_type_generator(T, options_str)
 end
 
-local TransposedDMatrix = terralib.memoize(function(ParentMatrix)
+local TransposedDMatrix = parametrized.type(function(ParentMatrix)
 
     assert(ParentMatrix.traits.ndims == 2)
 
@@ -460,7 +485,6 @@ local TransposedDMatrix = terralib.memoize(function(ParentMatrix)
     return DMatrix
 end)
 
-
 local dynamicmatrix_type_generator = parametrized.type(function(T, options_str)
     local ok, options = serde.deserialize_table(options_str)
     assert(ok)
@@ -498,6 +522,22 @@ local dynamicmatrix_type_generator = parametrized.type(function(T, options_str)
 end)
 
 local DynamicMatrix = parametrized.type(function(T, options)
+    --check input
+    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
+    
+    --check optional input
+    local options = options or {}
+    
+    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
+    options.perm = options.perm or array.defaultperm(2)
+    array.checkperm(options.perm, 2)
+
+    --check copyable
+    options.copyable = options.copyable or false
+    assert(type(options.copyable)=="boolean",
+        "Invalid option. Please provide {copyable = true / false}"
+    )
+
     --Tables are passed by reference in Lua. So the options table needs 
     --to be serialized to make sure memoization takes effect.
     local options_str = serde.serialize_table(options)
