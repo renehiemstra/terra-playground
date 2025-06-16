@@ -41,7 +41,7 @@ for T, tol in pairs(tols) do
                     a:set(1, 0, 3)
                     a:set(1, 1, 4)
                     var ap: packed.SparsePackedFactory(T, I, 32, 32)
-                    ap:pack(&a, 0, 0)
+                    ap:pack(&a, [T](1), 0, 0)
                 end
                 test ap.Ap[0] == 1
                 test ap.Ap[1] == 3
@@ -71,7 +71,7 @@ for T, tol in pairs(tols) do
                         end
                     end
                     var ap: packed.SparsePackedFactory(T, I, 32, 32)
-                    ap:pack(&a, 0, 0)
+                    ap:pack(&a, [T](1), 0, 0)
                 end
                 test ap.Ap[0] == 2
                 test ap.Ap[1] == -4
@@ -105,7 +105,7 @@ for T, tol in pairs(tols) do
                         end
                     end
                     var ap: packed.SparsePackedFactory(T, I, 32, 32)
-                    ap:pack(&a, 1, 1)
+                    ap:pack(&a, [T](1), 1, 1)
                 end
                 test ap.Ap[0] == 2
                 test ap.Ap[1] == -4

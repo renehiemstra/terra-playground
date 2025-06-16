@@ -365,8 +365,8 @@ local infsteprange = parametrized.type(function(T)
     return range
 end)
 
-local Unitrange = parametrized.type(function(T, sentinal)
-    local sentinal = sentinal or "bounded"
+local Unitrange = parametrized.type(function(T, options)
+    local sentinal = options.sentinal
     if sentinal == "bounded" then
         return unitrange(T)
     elseif sentinal == "infinite" then
@@ -374,10 +374,10 @@ local Unitrange = parametrized.type(function(T, sentinal)
     else
         error("ArgumentError: second (optional) argument should be 'bounded' or 'infinite'.")
     end
-end)
+end, {sentinal = "bounded"})
 
-local Steprange = parametrized.type(function(T, sentinal)
-    local sentinal = sentinal or "bounded"
+local Steprange = parametrized.type(function(T, options)
+    local sentinal = options.sentinal
     if sentinal == "bounded" then
         return steprange(T)
     elseif sentinal == "infinite" then
@@ -385,7 +385,7 @@ local Steprange = parametrized.type(function(T, sentinal)
     else
         error("ArgumentError: second (optional) argument should be 'bounded' or 'infinite'.")
     end
-end)
+end, {sentinal = "bounded"})
 
 local TransformedRange = function(Range, Function)
 
