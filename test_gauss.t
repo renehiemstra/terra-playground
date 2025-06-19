@@ -341,7 +341,7 @@ testenv "API" do
             --int_1^4 p(x) dx
             var x,w = gauss.legendre(&alloc, N, interval{1.0, 4.0})
             var s = 0.0
-            for qr in rn.zip(x,w) do
+            for qr in rn.zip(&x, &w) do
                 var xx, ww = qr
                 s = s + ww * p(xx)
             end
