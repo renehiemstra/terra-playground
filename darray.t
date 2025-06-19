@@ -51,6 +51,16 @@ local DArrayRawType = function(typename, T, Dimension, options)
         cumsize : size_t[Dimension] --cumulative product dimensions - is ordered according to 'perm'
     }
 
+    terra Array:__init()
+        self.data:__init() --initialize smartblock
+        escape
+            for k=0,Dimension-1 do
+                self.size[k] = 0    --initialize `size` array
+                self.cumsize[k] = 0 --initialize `cumsize` array
+            end
+        end
+    end
+
     --global type traits
     local traits = {}
     traits.eltype = T
@@ -135,7 +145,6 @@ local DArrayStackBase = function(Array)
     end
 
     --create a new dynamic array
-    --ToDo: fix terralib typechecker to perform raii initializers correctly
     local new = terra(alloc: Allocator, size : tup.ntuple(size_t, N))
         var __size = [ &size_t[N] ](&size)  --we need the size as an array
         var cumsize = getcumsize(@__size)   --compute cumulative sizes
