@@ -32,7 +32,7 @@ local FUNC = &opaque -> &opaque
 local struct thread {
     id: pthread.C.pthread_t
     func: FUNC
-    arg: alloc.SmartBlock(int8, {copyby = "move"})
+    arg: alloc.SmartBlock(int8)
 }
 base.AbstractBase(thread)
 
@@ -107,7 +107,7 @@ terraform thread.staticmethods.new(allocator, func, arg...)
 end
 
 local Alloc = alloc.Allocator
-local blockThread = alloc.SmartBlock(thread, {copyby = "view"})
+local blockThread = alloc.SmartBlock(thread)
 local queueThread = stack.DynamicStack(thread)
 
 -- Queue with thread-safe memory access via mutex
@@ -166,7 +166,7 @@ end)
 
 -- A join_threads struct is an abstraction over a block of threads that
 -- automatically joins all threads when the threads go out of scope.
-local block_thread = alloc.SmartBlock(thread, {copyby = "view"})
+local block_thread = alloc.SmartBlock(thread)
 local struct join_threads {
     data: span.Span(thread)
 }
