@@ -55,8 +55,10 @@ local DArrayRawType = function(typename, T, Dimension, options)
         self.data:__init() --initialize smartblock
         escape
             for k=0,Dimension-1 do
-                self.size[k] = 0    --initialize `size` array
-                self.cumsize[k] = 0 --initialize `cumsize` array
+                emit quote 
+                    self.size[k] = 0    --initialize `size` array
+                    self.cumsize[k] = 0 --initialize `cumsize` array
+                end
             end
         end
     end
