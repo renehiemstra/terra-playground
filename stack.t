@@ -158,7 +158,6 @@ local DynamicStack = parametrized.type(function(T)
     end
 
     terralib.ext.addmissing.__move(stack)
-    stack.methods.__copy = stack.methods.__move
 
     --sanity check
     assert(concepts.DStack(stack), "Stack type does not satisfy the DStack concepts.")
