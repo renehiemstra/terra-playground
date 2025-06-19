@@ -386,7 +386,7 @@ local terra legpts_nodes(alloc : Allocator, n : size_t, a : &dvec)
         for i = 0, m do
             var u = nodes(i)
             var u2 = u * u
-            var ai = a:get(i)
+            var ai = a(i)
             var ai2 = ai * ai
             var ai3 = ai2 * ai
             var ai5 = ai2 * ai3
