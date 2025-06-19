@@ -68,37 +68,36 @@ local RangeBase = function(Range, iterator_t)
 
     --overloading '>>' operator
     Range.metamethods.__rshift = macro(function(self, adapter)
-        local self_type = self.tree.type
-        local adapter_type = adapter.tree.type
+        local self_type = self:gettype()
+        local adapter_type = adapter:gettype()
         if self_type:isstruct() and self_type.metamethods.__for 
             and adapter_type:isstruct() 
         then
+            --get the adapter type generator: TransformedRange, FilteredRange, etc
             local Adapter = adapter_type.generator
-            local A = Adapter(self_type, adapter_type)
-            -- HACK Trigger init() manually
-            -- Normally, we would do return `A {self, adapter}
-            -- However, the current RAII implementation does not cover all
-            -- possible cases for an init() call yet.
-            -- Below code first declares an element of type A and then
-            -- fills the entries of A by the corresponding value. The situation
-            -- is complicated by the fact that each adaptor has different
-            -- entries names. Hence, we need to do a little bit of meta
-            -- programming to extract the name of the struct field.
-            assert(#A.entries == 2)
-            local newrange = symbol(A)
-            return (
-                quote 
-                    escape
-                        emit quote var [newrange] end
-                        for i, v in ipairs{self, adapter} do
-                            local name = A.entries[i].field
-                            emit quote [newrange].[name] = v end
-                        end
-                    end
-                in
-                    [newrange]
+            --is the range an lvalue? or an rvalue? We emit different code
+            --based on this: if `self` is an lvalue then we pass by reference unless
+            --the user reqeusts `__move__`. In all other cases we pass by value.
+            --this is done to correctly handle managed variables and use borrowing
+            --where applicable, rather than taking ownership of the data.
+            local passbyref = self.tree.lvalue and self.tree.assignment~="move"
+            --pass field by reference or value?
+            local passfield = macro(function(v) 
+                if passbyref then 
+                    return `&v
+                else
+                    return `v
                 end
-            )
+            end)
+            --get adapter type
+            local A = Adapter(passbyref and &self_type or self_type, adapter_type)
+            assert(#A.entries == 2)
+            --return the new range
+            return quote
+                var newrange = A{passfield(self), adapter}
+            in
+                newrange
+            end
         end
     end)
 
@@ -397,8 +396,11 @@ local TransformedRange = function(Range, Function)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(transform)
 
-    local iterator_t = Range.iterator_t
-    local T = Range.value_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+
+    local iterator_t = range_t.iterator_t
+    local T = range_t.value_t
 
     local eval = macro(function(self, value)
         if T.convertible=="tuple" then --we always unpack tuples
@@ -449,8 +451,11 @@ local FilteredRange = function(Range, Function)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(filter)
 
-    local iterator_t = Range.iterator_t
-    local T = Range.value_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+
+    local iterator_t = range_t.iterator_t
+    local T = range_t.value_t
 
     --evaluate predicate
     local pred = macro(function(self, value)
@@ -508,6 +513,9 @@ local TakeRange = function(Range)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(take)
 
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local Range = Range:ispointer() and Range.type or Range
+
     local iterator_t = Range.iterator_t
 
     local struct iterator{
@@ -549,7 +557,9 @@ local DropRange = function(Range)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(drop)
 
-    local iterator_t = Range.iterator_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+    local iterator_t = range_t.iterator_t
 
     local struct iterator{
         adapter : &drop
@@ -594,8 +604,11 @@ local TakeWhileRange = function(Range, Function)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(takewhile)
 
-    local iterator_t = Range.iterator_t
-    local T = Range.value_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+
+    local iterator_t = range_t.iterator_t
+    local T = range_t.value_t
 
     --evaluate predicate
     local pred = macro(function(self, value)
@@ -647,8 +660,11 @@ local DropWhileRange = function(Range, Function)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(dropwhile)
 
-    local iterator_t = Range.iterator_t
-    local T = Range.value_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+
+    local iterator_t = range_t.iterator_t
+    local T = range_t.value_t
 
     --evaluate predicate
     local pred = macro(function(self, value)

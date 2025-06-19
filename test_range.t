@@ -18,6 +18,7 @@ local stack = require("stack")
 local DefaultAllocator =  alloc.DefaultAllocator()
 local float256 = nfloat.FixedFloat(256)
 
+
 for _, T in ipairs{int, double, float256} do
 
     local stack = stack.DynamicStack(T)
@@ -392,6 +393,27 @@ testenv "range adapters" do
         test s:get(1)==8
         test s:get(2)==9
     end
+    
+    testset "adapter borrowing data in container" do
+        terracode
+            var r = unitrange{2, 6}
+            r:pushall(&s)
+            var x = s >> rn.transform([terra(i : int, x : int) return x * i end], {x = 2})
+        end
+        test s:size() == 4
+        test s:get(0) == 2 and s:get(1) == 3 and s:get(2) == 4 and s:get(3) == 5
+    end
+
+    testset "adapter taking ownership of data in container using __move__" do
+        terracode
+            var r = unitrange{2, 6}
+            r:pushall(&s)
+            var x = __move__(s) >> rn.transform([terra(i : int, x : int) return x * i end], {x = 2})
+        end
+        test s.data:isempty()
+        test s:size() == 0
+    end
+
 end
 
 testenv "range accumulators" do
