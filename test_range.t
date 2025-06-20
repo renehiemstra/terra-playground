@@ -273,8 +273,8 @@ for _, T in ipairs{int, double, float256} do
 
     testenv(T) "linear ranges - infinite ranges" do
 
-        local unitrange = rn.Unitrange(T, "infinite")
-        local steprange = rn.Steprange(T, "infinite")
+        local unitrange = rn.Unitrange(T, {sentinal = "infinite"})
+        local steprange = rn.Steprange(T, {sentinal = "infinite"})
         
         terracode
             var alloc : DefaultAllocator

@@ -64,4 +64,27 @@ testenv "Parametrized types" do
         test process(x) == 5
         test process(y) == -1.0
     end
+
+    testset "Optional arguments" do
+        local Allocator = parametrized.type(function(T, options)
+                if options.zero_init then
+                    local struct alloc {
+                        zro: T
+                    }
+                    return alloc
+                else
+                    local struct alloc {
+                    }
+                    return alloc
+                end
+            end, {zero_init = false})
+
+        local A = Allocator(int)
+        local B = Allocator(int, {})
+        local C = Allocator(int, {zero_init = false})
+
+        test [A == B]
+        test [B == C]
+        test [C == A]
+    end
 end

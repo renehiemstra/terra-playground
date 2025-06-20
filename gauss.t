@@ -119,7 +119,7 @@ local terra hermite_xinit_sin(r : double, nu : double, a : double)
     return tmath.sqrt(lambda)
 end
 
-local unitrange_i = range.Unitrange(int, "infinite")
+local unitrange_i = range.Unitrange(int, {sentinal = "infinite"})
 local steprange_i = range.Steprange(int)
 
 local terra hermite_initialguess(alloc : Allocator, n : size_t)
