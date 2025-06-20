@@ -34,10 +34,11 @@ __boundscheck__ = true
 local DArrayRawType = function(typename, T, Dimension, options)
 
     --check input
-    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
-    assert(Dimension%1==0, "ArgumentError: expected an integer.")
+    array.checkperm(options.perm, Dimension)
+    assert(terralib.types.istype(T), "Invalid option: not a valid element type. Expected a terra type.")
+    assert(Dimension%1==0, "Invalid option: not a valid dimension. Expected an integer.")
     assert(type(options.copyable)=="boolean",
-        "Invalid option. Please provide {copyable = true / false}"
+        "Invalid option. Expected copyable to be a boolean."
     )
     
     --smart block
@@ -358,9 +359,8 @@ local DArrayIteratorBase = function(Array)
  
 end
 
-local dynamicarray_type_generator = parametrized.type(function(T, Dimension, options_str)
-    local ok, options = serde.deserialize_table(options_str)
-    assert(ok)
+local dynamicarray_type_generator = parametrized.type(function(T, Dimension, options)
+
     --print typename
     local function typename(traits)
         local sizes = "{"
@@ -385,25 +385,15 @@ end)
 
 local DynamicArray = function(T, Dimension, options)
 
-    --check optional input
     local options = options or {}
-    
-    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    options.perm = options.perm or array.defaultperm(Dimension)
-    array.checkperm(options.perm, Dimension)
-    --check copyable
+    options.perm = options.perm or array.defaultperm(Dimension) --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
     options.copyable = options.copyable or false
 
-    --Tables are passed by reference in Lua. So the options table needs 
-    --to be serialized to make sure memoization takes effect.
-    local options_str = serde.serialize_table(options)
-    return dynamicarray_type_generator(T, Dimension, options_str)
+    return dynamicarray_type_generator(T, Dimension, options)
 end
 
-local dynamicvector_type_generator = parametrized.type(function(T, options_str)
-    local ok, options = serde.deserialize_table(options_str)
-    assert(ok)
-    
+local dynamicvector_type_generator = parametrized.type(function(T, options)
+
     --print typename
     local function typename(traits)
         return ("DynamicVector(%s)"):format(tostring(T))
@@ -422,19 +412,11 @@ end)
 
 local DynamicVector = function(T, options)
 
-    --check optional input
     local options = options or {}
-    
-    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    options.perm = options.perm or array.defaultperm(1)
-    array.checkperm(options.perm, 1)
-    --check copyable
+    options.perm = options.perm or array.defaultperm(1) --permutation denoting order of leading dimensions.
     options.copyable = options.copyable or false
 
-    --Tables are passed by reference in Lua. So the options table needs 
-    --to be serialized to make sure memoization takes effect.
-    local options_str = serde.serialize_table(options)
-    return dynamicvector_type_generator(T, options_str)
+    return dynamicvector_type_generator(T, options)
 end
 
 local TransposedDMatrix = terralib.memoize(function(ParentMatrix)
@@ -490,9 +472,7 @@ local TransposedDMatrix = terralib.memoize(function(ParentMatrix)
     return DMatrix
 end)
 
-local dynamicmatrix_type_generator = parametrized.type(function(T, options_str)
-    local ok, options = serde.deserialize_table(options_str)
-    assert(ok)
+local dynamicmatrix_type_generator = parametrized.type(function(T, options)
     
     local function typename(traits)
         return ("DynamicMatrix(%s)"):format(tostring(T))
@@ -501,7 +481,7 @@ local dynamicmatrix_type_generator = parametrized.type(function(T, options_str)
     local DMatrix = DArrayRawType(typename, T, 2, options)
 
     --check that a matrix-type was generated
-    assert(DMatrix.traits.ndims == 2, "ArgumentError: second argument should be a table with matrix dimensions.")
+    assert(DMatrix.traits.ndims == 2, "ArgumentError: expected array dimension equal to two.")
 
     --implement interfaces
     DArrayStackBase(DMatrix)
@@ -528,18 +508,11 @@ end)
 
 local DynamicMatrix = function(T, options)
 
-    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
     local options = options or {}
-    options.perm = options.perm or array.defaultperm(2)
-    array.checkperm(options.perm, 2)
-
-    --check copyable
+    options.perm = options.perm or array.defaultperm(2) --permutation denoting order of leading dimensions.
     options.copyable = options.copyable or false
 
-    --Tables are passed by reference in Lua. So the options table needs 
-    --to be serialized to make sure memoization takes effect.
-    local options_str = serde.serialize_table(options)
-    return dynamicmatrix_type_generator(T, options_str)
+    return dynamicmatrix_type_generator(T, options)
 end
 
 return {

@@ -57,11 +57,8 @@ local SArrayRawType = function(typename, T, Size, options)
     --check input
     assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
     checksize(Size)
-
-    -- dimension of array
-    local Dimension = #Size
-    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    local Perm = options.perm
+    local Dimension = #Size -- dimension of array
+    local Perm = options.perm --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
     array.checkperm(Perm, Dimension)
     --get cumulative sizes, which denote the cumulative leading dimensions of the array
     --default is computed from Size and Perm
@@ -291,11 +288,7 @@ local SArrayIteratorBase = function(Array)
     vec.IteratorBase(Array)
 end
 
-local staticarray_type_generator = parametrized.type(function(T, size_str, options_str)
-    local ok, Size = serde.deserialize_table(size_str)
-    assert(ok)
-    local ok, options = serde.deserialize_table(options_str)
-    assert(ok)
+local staticarray_type_generator = parametrized.type(function(T, Size, options)
     --print typename
     local function typename(traits)
         local sizes = "{"
@@ -324,17 +317,12 @@ local StaticArray = function(T, Size, options)
     --handle options
     local options = options or {}
     --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    local Dimension = #Size
-    options.perm = options.perm or array.defaultperm(Dimension)
-    array.checkperm(options.perm, Dimension)
+    options.perm = options.perm or array.defaultperm(#Size)
     --get cumulative sizes, which denote the cumulative leading dimensions of the array
     --default is computed from Size and Perm
     options.cumulative_size = options.cumulative_size or getcumsize(Size, options.perm)
-    --Tables are passed by reference in Lua. So the size and options table needs 
-    --to be serialized to make sure memoization takes effect.
-    local size_str = serde.serialize_table(Size)
-    local options_str = serde.serialize_table(options)
-    return staticarray_type_generator(T, size_str, options_str)
+
+    return staticarray_type_generator(T, Size, options)
 end
 
 --StaticVector is reimplemented separately from 'Array' because otherwise
@@ -405,11 +393,8 @@ local TransposedSMatrix = terralib.memoize(function(ParentMatrix)
     return SMatrix
 end)
 
-local staticmatrix_type_generator = parametrized.type(function(T, size_str, options_str)
-    local ok, Size = serde.deserialize_table(size_str)
-    assert(ok)
-    local ok, options = serde.deserialize_table(options_str)
-    assert(ok)
+local staticmatrix_type_generator = parametrized.type(function(T, Size, options)
+
     --print typename
     local function typename(traits)
         return ("StaticMatrix(%s, {%d, %d})"):format(tostring(T), Size{1}, Size{2})
@@ -442,15 +427,11 @@ local StaticMatrix = function(T, Size, options)
     local options = options or {}
     --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
     options.perm = options.perm or array.defaultperm(2)
-    array.checkperm(options.perm, 2)
     --get cumulative sizes, which denote the cumulative leading dimensions of the array
     --default is computed from Size and Perm
     options.cumulative_size = options.cumulative_size or getcumsize(Size, options.perm)
-    --Tables are passed by reference in Lua. So the size and options table needs 
-    --to be serialized to make sure memoization takes effect.
-    local size_str = serde.serialize_table(Size)
-    local options_str = serde.serialize_table(options)
-    return staticmatrix_type_generator(T, size_str, options_str)
+
+    return staticmatrix_type_generator(T, Size, options)
 end
 
 
