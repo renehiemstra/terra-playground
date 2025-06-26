@@ -270,8 +270,8 @@ local DArrayVectorBase = function(Array)
     end
 
     --check if vector concept is satisfied
-    local CVector = concepts.Vector(T)
-    assert(CVector(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CVector))
+    local CTensor = concepts.Tensor(T, N)
+    assert(CTensor(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CTensor))
 end
 
 

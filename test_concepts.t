@@ -328,6 +328,15 @@ testenv "Concrete concepts" do
 		terra T1:scale(a: float) end
 		test [C(T1)]
 	end
+
+	testset "Tensor" do
+		local C = concepts.Tensor(concepts.Real)
+		local D = concepts.Tensor(concepts.Real, 3)
+		test [concepts.isconcept(C)]
+		test [concepts.isconcept(D)]
+		test [C(D)]
+		test [D(C) == false]
+	end
 end
 
 testenv "Parametrized concepts" do
@@ -561,9 +570,5 @@ testenv "Parametrized concepts" do
 		test [SVec3D(I) == false]
 		test [SVec3D(D) == true]
 		test [SVec3D(E) == false]
-	end
-
-	testset "Parametrized types" do
-
 	end
 end
