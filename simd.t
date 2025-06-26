@@ -80,6 +80,36 @@ local VectorFactory = parametrized.type(function(T, N)
     return vec
 end)
 
+local load = terralib.memoize(function(T, N)
+    local load = terra(a: &T)
+        escape
+            local SIMD = vector(T, N)
+            local arg = {}
+            for i = 1, N do
+                arg[i] = `a[i - 1]
+            end
+            emit quote return vectorof(T, [arg]) end
+        end
+    end
+    load:setinlined(true)
+    return load
+end)
+
+local store = terralib.memoize(function(T, N)
+    local SIMD = vector(T, N)
+    local store = terra(a: &T, v: SIMD)
+        escape
+            for i = 0, N - 1 do
+                emit quote a[i] = v[i] end
+            end
+        end
+    end
+    store:setinlined(true)
+    return store
+end)
+
 return {
     VectorFactory = VectorFactory,
+    load = load,
+    store = store,
 }
