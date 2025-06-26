@@ -67,6 +67,7 @@ testenv "Parametrized types" do
 
     testset "Optional arguments" do
         local Allocator = parametrized.type(function(T, options)
+                assert(type(options.zero_init) == "boolean")
                 if options.zero_init then
                     local struct alloc {
                         zro: T
