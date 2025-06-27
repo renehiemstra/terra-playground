@@ -374,11 +374,9 @@ local TracingAllocator = terralib.memoize(function()
 
     terra tracing:__reallocate(blk: &block, elsize: size_t, counter: size_t)
         var guard: lock_guard = self.mtx
-        var oldsz: uint64
-        atomics.store(&oldsz, blk:size_in_bytes())
+        var oldsz = blk:size_in_bytes()
         self.A:__reallocate(blk, elsize, counter)
-        var sz: uint64
-        atomics.store(&sz, blk:size_in_bytes())
+        var sz = blk:size_in_bytes()
         atomics.add(&self.used, sz - oldsz)
     end
 
