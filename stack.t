@@ -121,8 +121,13 @@ local DynamicStack = parametrized.type(function(T)
 
     terra stack:pop()
         if self:size() > 0 then
-            var tmp = __move__(self.data(self.size - 1))
+            var tmp = __move__(self.data.ptr[self.size - 1])
             self.size = self.size - 1
+            return tmp
+        else
+            --added this branch to make sure T:__init() is called 
+            --in case of managed data
+            var tmp : T -- T:__init() is called here
             return tmp
         end
     end
@@ -151,12 +156,7 @@ local DynamicStack = parametrized.type(function(T)
     --add all methods from stack-base
     StackBase(stack)
 
-    --initialize to empty block
-    stack.methods.__init = terra(self : &stack)
-        self.data:__init()
-        self.size = 0
-    end
-
+    terralib.ext.addmissing.__init(stack)
     terralib.ext.addmissing.__move(stack)
 
     --sanity check
