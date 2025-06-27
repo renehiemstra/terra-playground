@@ -52,18 +52,6 @@ local DArrayRawType = function(typename, T, Dimension, options)
         cumsize : size_t[Dimension] --cumulative product dimensions - is ordered according to 'perm'
     }
 
-    terra Array:__init()
-        self.data:__init() --initialize smartblock
-        escape
-            for k=0,Dimension-1 do
-                emit quote 
-                    self.size[k] = 0    --initialize `size` array
-                    self.cumsize[k] = 0 --initialize `cumsize` array
-                end
-            end
-        end
-    end
-
     --global type traits
     local traits = {}
     traits.eltype = T
