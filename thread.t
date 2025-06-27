@@ -5,6 +5,8 @@
 --
 -- SPDX-License-Identifier: MIT
 
+require "terralibext"
+
 local alloc = require("alloc")
 local atomics = require("atomics")
 local base = require("base")
@@ -12,8 +14,6 @@ local stack = require("stack")
 local pthread = require("pthread")
 local span = require("span")
 local parametrized = require("parametrized")
-
-require "terralibext"
 
 import "terraform"
 
@@ -35,6 +35,11 @@ local struct thread {
     arg: alloc.SmartBlock(int8)
 }
 base.AbstractBase(thread)
+
+--auto-generate `__init`
+terralib.ext.addmissing.__init(thread)
+terralib.ext.addmissing.__dtor(thread)
+terralib.ext.addmissing.__move(thread)
 
 terra thread.metamethods.__eq(self: &thread, other: &thread)
     return pthread.C.equal(self.id, other.id)
@@ -67,9 +72,6 @@ end
 -- arguments, it generates a terra function with signature FUNC and a datatype
 -- that stores the function arguments. It returns a thread instance but not
 -- starting the thread.
-local io = terralib.includecstring([[
-    #include <stdio.h>
-]])
 local terraform submit(allocator, func, arg...)
     var t: thread
     -- We do not set t.id as it will be set by thread.new
@@ -80,9 +82,9 @@ local terraform submit(allocator, func, arg...)
             arg: arg.type
         }
         local smartpacked = alloc.SmartObject(packed)
-
-        --terralib.ext.addmissing.__move(smartpacked)
-        --smartpacked.methods.__move:printpretty()
+        smartpacked:complete()
+        terralib.ext.addmissing.__init(smartpacked)
+        terralib.ext.addmissing.__move(smartpacked)
         emit quote
             t.func = [
                 terra(parg: &opaque)
@@ -92,8 +94,8 @@ local terraform submit(allocator, func, arg...)
                 end
             ]
             var smrtpacked = [alloc.SmartObject(packed)].new(allocator)
-            smrtpacked.arg = arg
-            smrtpacked.func = func
+            smrtpacked.arg = __move__(arg)
+            smrtpacked.func = __move__(func)
             t.arg = __move__(smrtpacked)
         end
     end
@@ -118,7 +120,8 @@ local ThreadsafeQueue = parametrized.type(function(T)
         data: S
     }
     base.AbstractBase(threadsafe_queue)
-
+    terralib.ext.addmissing.__init(threadsafe_queue)
+    
     terra threadsafe_queue:__dtor()
         self.data:__dtor()
         self.mutex:__dtor()
@@ -129,16 +132,11 @@ local ThreadsafeQueue = parametrized.type(function(T)
         return self.data:size() == 0
     end
 
-    --ToDo: bug happens here iside the lock_quard
     terra threadsafe_queue:push(t: T)
-        --io.printf("lock guard\n")
         var guard: lock_guard = self.mutex
-        --self.mutex:lock()
-        --io.printf("locked guard\n")
         self.data:push(__move__(t))
-        --self.mutex:unlock() 
     end
-
+    
     terra threadsafe_queue:try_pop(t: &T)
         self.mutex:lock()
         if self.data:size() == 0 then
@@ -153,11 +151,7 @@ local ThreadsafeQueue = parametrized.type(function(T)
 
     threadsafe_queue.staticmethods.new = (
         terra(alloc: Alloc, capacity: int64)
-            var q : threadsafe_queue
-            q.data = S.new(alloc, capacity)
-            return q
-            --ToDo: fix initializers for r-value
-            --threadsafe_queue{data=S.new(alloc, capacity)}
+            return threadsafe_queue{data=S.new(alloc, capacity)}
         end
     )
     

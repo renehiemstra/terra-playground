@@ -16,14 +16,22 @@ local tmath = require("tmath")
 
 import "terratest/terratest"
 
-require("terralibext")
-
-local TracingAllocator = alloc.TracingAllocator()
-
 
 testenv "Basic data structures" do
     terracode
         var A: alloc.DefaultAllocator()
+    end
+
+    testset "initialize thread" do
+        terracode
+            var t : thread.thread
+        end
+        test t.id == 0
+        test t.func == nil
+        test t.arg.ptr == nil
+        test t.arg.nbytes == 0
+        test t.arg.alloc.data == nil
+        test t.arg.alloc.ftab == nil
     end
 
     testset "Mutex" do
@@ -80,7 +88,7 @@ testenv "Basic data structures" do
             var a: int[NTHREADS]
             var t: thread.thread[NTHREADS]
             do
-                var joiner = thread.join_threads {t}
+                var joiner = thread.join_threads {{&t[0], NTHREADS}}
                 for i = 0, NTHREADS do
                     t[i] = thread.thread.new(&A, go, i, &a[0])
                 end
@@ -209,13 +217,13 @@ testenv "Parallel for" do
             t:grow(&A, 2.0, 5.0)
             t.left:grow(&A, 1.0, 3.0)
             var go = lambda.new([
-                terra(it: tuple(int32, double), v: v.type)
+                terra(it: tuple(int32, double), v: &v.type)
                     var i, x = it
                     v(i) = x
                 end
-            ], {v = v})
+            ], {v = &v})
             thread.parfor(
-                &A, range.zip([range.Unitrange(int32)].new(0, 5), t.ptr), go
+                &A, range.zip([range.Unitrange(int32)].new(0, 5), t.ptr), go, 1
             )
         end
 
