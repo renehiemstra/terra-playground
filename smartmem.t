@@ -8,7 +8,6 @@
 require "terralibext"
 
 local C = terralib.includecstring[[
-    #include <stdio.h>
     #include <string.h>
 ]]
 
@@ -71,14 +70,9 @@ local function Base(block, T, options)
             return self.nbytes / [block.elsize]
         end
     end
-
-    --initialize to empty block
-    block.methods.__init = terra(self : &block)
-        self.ptr = nil
-        self.nbytes = 0
-        self.alloc.data = nil
-        self.alloc.ftab = nil
-    end
+    
+    --auto-generate __init method
+    terralib.ext.addmissing.__init(block)
 
     --exact clone of the block
     block.methods.clone = terra(self : &block)
@@ -163,51 +157,54 @@ local smartblock_type_generator = terralib.memoize(function(T, options_str)
         if not to.isblock or not from.isblock then
             error("Arguments to cast need to be of generic type SmartBlock.")
         end
-        --perform cast
-        if byvalue then
-            --case when and opaque block is cast to a SmartBlock with a managed element 
-            --type (implements a '__dtor')
-            --note: the opaque memory is first cast to the new (managed) element type
-            --and is then initialized with the '__init' method to make sure that the 
-            --uninitialized memory is initialized with the correct initializer.
-            if terralib.ext.ismanaged(to.traits.eltype) and from.traits.eltype==opaque then
+        --based on passing-by-reference or by-value we return a different parameter
+        local returnfromcast = macro(function(blk)
+            if byvalue then
                 return quote
-                    --we get a handle to the object, which means we get an lvalue that 
-                    --does not own the resource, so it's '__dtor' will not be called
-                    var tmp = __handle__(exp)
-                    --debug check if sizes are compatible, that is, is the
-                    --remainder zero after integer division
-                    err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
-                    --loop over all elements of blk and initialize their entries. This 
-                    --is done to correctly initialize the uninitialized memory.
-                    var size = tmp:size_in_bytes() / [to.elsize]
-                    var ptr = [&to.traits.eltype](tmp.ptr)
-                    for i = 0, size do
-                        ptr:__init()
-                        ptr = ptr + 1
-                    end
                 in
-                    [to.type]{[&to.traits.eltype](tmp.ptr), tmp.nbytes, tmp.alloc}
+                    [to.type]{[&to.traits.eltype](blk.ptr), blk.nbytes, blk.alloc}
                 end
-            --simple case when to.eltype is not managed
             else
                 return quote
-                    var tmp = __handle__(exp)
-                    --debug check if sizes are compatible, that is, is the
-                    --remainder zero after integer division
-                    --err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
                 in
-                    [to.type]{[&to.traits.eltype](tmp.ptr), tmp.nbytes, tmp.alloc}
+                    [&to.type](blk)
                 end
             end
-        else
-            --passing by reference
+        end) 
+        --perform cast
+        --case when and opaque block is cast to a SmartBlock with a managed element 
+        --type (implements a '__dtor')
+        --note: the opaque memory is first cast to the new (managed) element type
+        --and is then initialized with the '__init' method to make sure that the 
+        --uninitialized memory is initialized with the correct initializer.
+        if terralib.ext.ismanaged(to.traits.eltype) and from.traits.eltype==opaque then
             return quote
-                --store the reference such that we can access it.
-                var blk = exp
-                err.assert(blk:size_in_bytes() % [to.elsize]  == 0)
+                --we get a handle to the object, which means we get an lvalue that 
+                --does not own the resource, so it's '__dtor' will not be called
+                var tmp = __handle__(exp)
+                --debug check if sizes are compatible, that is, is the
+                --remainder zero after integer division
+                err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
+                --loop over all elements of blk and initialize their entries. This 
+                --is done to correctly initialize the uninitialized memory.
+                var size = tmp:size_in_bytes() / [to.elsize]
+                var ptr = [&to.traits.eltype](tmp.ptr)
+                for i = 0, size do
+                    ptr:__init()
+                    ptr = ptr + 1
+                end
             in
-                [&to.type](blk)
+                returnfromcast(tmp)
+            end
+        --simple case when to.eltype is not managed
+        else
+            return quote
+                var tmp = __handle__(exp)
+                --debug check if sizes are compatible, that is, is the
+                --remainder zero after integer division
+                err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
+            in
+                returnfromcast(tmp)
             end
         end
     end --__cast
