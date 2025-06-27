@@ -225,12 +225,12 @@ testenv "Full Phasespace Integral" do
                 ndim,
                 &normal(0, 0),
                 --
-                testx.data:size(),
+                testx.data:length(),
                 &testx.data(0),
                 &testx.col(0),
                 &testx.rowptr(0),
                 --
-                trialx.data:size(),
+                trialx.data:length(),
                 &trialx.data(0),
                 &trialx.col(0),
                 &trialx.rowptr(0),

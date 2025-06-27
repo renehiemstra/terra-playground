@@ -22,7 +22,7 @@ local StackBase = function(stack)
     local T = stack.traits.eltype
 
 	terra stack:reverse()
-		var size = self:size()
+		var size = self:length()
 		for i = 0, size / 2 do
 			var a, b = self:get(i), self:get(size -1 - i)
 			self:set(i, b)
@@ -50,7 +50,7 @@ local StackBase = function(stack)
     end
 
     terra iterator:isvalid()
-        return self.ptr - self.parent:getdataptr() < self.parent:size()
+        return self.ptr - self.parent:getdataptr() < self.parent:length()
     end
     
     stack.iterator = iterator
@@ -91,7 +91,7 @@ local DynamicStack = parametrized.type(function(T)
         return self.data:getdataptr()
     end
 
-    terra stack:size()
+    terra stack:length()
         return self.size
     end
 
@@ -102,7 +102,7 @@ local DynamicStack = parametrized.type(function(T)
     terra stack:push(v : T)
         --we don't allow pushing when 'data' is empty
         err.assert(self.data:isempty() == false)
-        if self:size() == self:capacity() then
+        if self:length() == self:capacity() then
             self.data:reallocate(1 + 2 * self:capacity())
         end
         self.size = self.size + 1
@@ -110,17 +110,17 @@ local DynamicStack = parametrized.type(function(T)
     end
 
     terra stack:get(i : size_t)
-        err.assert(i < self:size())
+        err.assert(i < self:length())
         return self.data:get(i)
     end
 
     terra stack:set(i : size_t, v : T)
-        err.assert(i < self:size())
+        err.assert(i < self:length())
         self.data:set(i, v)
     end
 
     terra stack:pop()
-        if self:size() > 0 then
+        if self:length() > 0 then
             var tmp = __move__(self.data(self.size - 1))
             self.size = self.size - 1
             return tmp
@@ -129,14 +129,14 @@ local DynamicStack = parametrized.type(function(T)
 
     stack.metamethods.__apply = macro(function(self, i)
         return quote 
-            err.assert(i < self:size())
+            err.assert(i < self:length())
         in
             self.data(i)
         end
     end)
 
     terra stack:insert(i: size_t, v: T)
-        var sz = self:size()
+        var sz = self:length()
         err.assert(i <= sz)
         self:push(v)
         if i < sz then

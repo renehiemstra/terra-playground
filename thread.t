@@ -126,7 +126,7 @@ local ThreadsafeQueue = parametrized.type(function(T)
 
     terra threadsafe_queue:isempty()
         var guard: lock_guard = self.mutex
-        return self.data:size() == 0
+        return self.data:length() == 0
     end
 
     --ToDo: bug happens here iside the lock_quard
@@ -141,7 +141,7 @@ local ThreadsafeQueue = parametrized.type(function(T)
 
     terra threadsafe_queue:try_pop(t: &T)
         self.mutex:lock()
-        if self.data:size() == 0 then
+        if self.data:length() == 0 then
             self.mutex:unlock()
             return false
         else

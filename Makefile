@@ -17,10 +17,13 @@ TERRAFLAGS?=-g
 
 CFLAGS=-O2 -march=native -fPIC
 
-all: libexport.$(dyn) libtinymt.$(dyn) libpcg.$(dyn) libhash.$(dyn) libnonlinearbc.$(dyn)  gnuplot_i.$(dyn)
+all: libexport.$(dyn) libtinymt.$(dyn) libpcg.$(dyn) libhash.$(dyn) libnonlinearbc.$(dyn)  gnuplot_i.$(dyn) libcontraction.$(dyn)
 
 
 libnonlinearbc.$(dyn): nonlinearbc.o
+	$(CC) -fPIC -shared $^ -o $@ -lpthread -lopenblas -lm
+
+libcontraction.$(dyn): contraction.o
 	$(CC) -fPIC -shared $^ -o $@ -lpthread -lopenblas -lm
 
 libhash.$(dyn): hashmap.o
@@ -34,6 +37,9 @@ libexport.$(dyn): export.o
 
 nonlinearbc.o: compile_boltzmann.t boltzmann.t
 	$(TERRA) $(TERRAFLAGS) compile_boltzmann.t
+
+contraction.o: compile_contraction.t contraction.t
+	$(TERRA) $(TERRAFLAGS) compile_contraction.t
 
 export.o: export.t export_decl.t
 	$(TERRA) $(TERRAFLAGS) export.t

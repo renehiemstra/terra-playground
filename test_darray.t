@@ -496,7 +496,7 @@ for _,T in ipairs{int, float, double, float128} do
 
     local Concept = {
         Stack = concepts.Stack(T),
-        Vector = concepts.Vector(T),
+        Tensor = concepts.Tensor(T),
         Matrix = concepts.Matrix(T),
         Range = concepts.Range
     }
@@ -513,11 +513,11 @@ for _,T in ipairs{int, float, double, float128} do
         end
 
         --test basic concepts
-        test [ Concept.Vector(DMatrix)]
+        test [ Concept.Tensor(DMatrix)]
         test [ Concept.Range(DMatrix) ]
         --check of transpose type isa Matrix, Vector and Range
         test [ Concept.Matrix(B.type.type)]
-        test [ Concept.Vector(B.type.type)]
+        test [ Concept.Tensor(B.type.type)]
         test [ Concept.Range(B.type.type) ]
 
         testset "transpose" do
@@ -623,7 +623,7 @@ for _,T in ipairs{cint, cfloat, cdouble, cfloat128} do
 
     local Concept = {
         Stack = concepts.Stack(T),
-        Vector = concepts.Vector(T),
+        Tensor = concepts.Tensor(T),
         Matrix = concepts.Matrix(T),
         Range = concepts.Range
     }
@@ -640,11 +640,11 @@ for _,T in ipairs{cint, cfloat, cdouble, cfloat128} do
         end
 
         --test basic concepts
-        test [ Concept.Vector(A.type)]
+        test [ Concept.Tensor(A.type)]
         test [ Concept.Range(A.type) ]
         --check of transpose type isa Matrix, Vector and Range
         test [ Concept.Matrix(B.type.type)]
-        test [ Concept.Vector(B.type.type)]
+        test [ Concept.Tensor(B.type.type)]
         test [ Concept.Range(B.type.type) ]
 
         testset "transpose" do

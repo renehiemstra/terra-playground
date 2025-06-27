@@ -26,7 +26,7 @@ local Allocator = alloc.Allocator
 local size_t = uint64
 
 --global flag to perform boundscheck
-__boundscheck__ = true
+__boundscheck__ = false
 
 
 local DArrayRawType = function(typename, T, Dimension, options)

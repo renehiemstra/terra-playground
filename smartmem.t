@@ -82,6 +82,7 @@ local function Base(block, T, options)
             return self.nbytes / [block.elsize]
         end
     end
+    block.methods.length = block.methods.size
 
     --initialize to empty block
     block.methods.__init = terra(self : &block)

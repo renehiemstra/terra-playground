@@ -121,7 +121,7 @@ local concept Range
 end
 
 local concept Stack(T) where {T}
-    Self.traits.eltype = traittag
+    Self.traits.eltype = T
     Self.methods.get  = {&Self, Integer} -> T
     Self.methods.set  = {&Self, Integer, T} -> {}
     Self.methods.length = {&Self} -> Integer
@@ -135,9 +135,7 @@ local concept DStack(T) where {T}
 end
 
 local concept Tensor(T) where {T}
-    local S = Stack(T)
-    Self:inherit(S)
-    --
+    Self:inherit(Stack(T))
     Self.traits.ndims = traittag
     Self.traits.perm = traittag
 end
@@ -147,8 +145,7 @@ concept Tensor(T, N) where {T, N}
 end
 
 local concept Vector(T) where {T}
-    local A = Tensor(T, 1)
-    Self:inherit(A)
+    Self:inherit(Tensor(T, 1))
     local S = Stack(T)
     Self.methods.fill  = {&Self, T} -> {}
     Self.methods.copy = {&Self, &S} -> {}

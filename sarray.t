@@ -21,7 +21,7 @@ local parametrized = require("parametrized")
 local size_t = uint64
 
 --global flag to perform boundscheck
-__boundscheck__ = true
+__boundscheck__ = false
 
 --there is a bug on macos that leads to undefined behavior for
 --simd vectors of size < 64 bytes. temporary fix is to always
@@ -229,8 +229,8 @@ local SArrayVectorBase = function(Array)
     end
 
     --check if vector concept is satisfied
-    local CVector = concepts.Vector(T)
-    assert(CVector(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CVector))
+    local CTensor = concepts.Tensor(T)
+    assert(CTensor(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CTensor))
 
 end
 
