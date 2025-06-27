@@ -47,6 +47,16 @@ for _, alignment in ipairs{0, 64} do
             var A : DefaultAllocator
         end
 
+        testset "test smart block:__init()" do
+            terracode
+                var y : doubles
+            end
+            test y.ptr == nil
+            test y.nbytes == 0
+            test y.alloc.data == nil
+            test y.alloc.ftab == nil
+        end
+
         testset "cast opaque block to smart block - inside function" do
             terracode
                 var y : doubles
