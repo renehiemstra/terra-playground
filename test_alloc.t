@@ -9,8 +9,6 @@ import "terratest/terratest"
 
 local alloc = require("alloc")
 
-local C = terralib.includec("stdio.h")
-
 --test serialization of options table in Lua for the 
 --default allocator
 assert(alloc.DefaultAllocator({Alignment = 0}) == alloc.DefaultAllocator())
@@ -185,7 +183,6 @@ for _, alignment in ipairs{0, 64} do
                     __dtor_counter = 0
                     var y : doubles = A:new(sizeof(double), 2)
                 end
-                C.printf("value: %d\n", __dtor_counter)
             end
             test get_dtor_counter()==1
         end
