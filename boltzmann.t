@@ -340,16 +340,23 @@ local Vector = concepts.Vector
 local Number = concepts.Number
 local terraform local_maxwellian(basis : &B, coeff: &V, quad: &Q)
     where {B, V: Vector(Number), Q}
+    io.printf("local_maxwellian - -1\n")
     var m1: V.traits.eltype = 0
     var m2 = [sarray.StaticVector(V.traits.eltype, VDIM)].zeros()
     var m3: V.traits.eltype = 0
 
+    io.printf("local_maxwellian - 0\n")
     var it = quad:getiterator()
+    io.printf("local_maxwellian - 10\n")
     var xref, wref = it:getvalue()
+    io.printf("local_maxwellian - 11\n")
     for bc in range.zip(basis, coeff) do
+        io.printf("local_maxwellian - range.zip - 0\n")
         var b, c = bc
+        io.printf("local_maxwellian - range.zip - 1\n")
         var cnst = lambda.new([terra(v: &wref.type) return 1.0 end])
         m1 = m1 + l2inner(b, cnst, quad) * c
+        io.printf("local_maxwellian - range.zip - 2\n")
         escape
             for i = 0, VDIM - 1 do
                 local vi = `lambda.new([terra(v: &wref.type) return v[i] end])
@@ -358,6 +365,7 @@ local terraform local_maxwellian(basis : &B, coeff: &V, quad: &Q)
                 end
             end
         end
+        io.printf("local_maxwellian - range.zip - 3\n")
         var vsqr = lambda.new([
                         terra(v: &wref.type)
                             var vsqr = [wref.type](0)
@@ -370,17 +378,20 @@ local terraform local_maxwellian(basis : &B, coeff: &V, quad: &Q)
                         end
                     ])        
         m3 = m3 + l2inner(b, vsqr, quad) * c
+        io.printf("local_maxwellian - range.zip - 4\n")
     end
-
+    io.printf("local_maxwellian - 1\n")
     var rho = m1
     var u = [m2.type].zeros()
     for j = 0, VDIM do
         u(j) = m2(j) / rho
     end
+    io.printf("local_maxwellian - 2\n")
     var theta = m3 / rho
     for j = 0, VDIM do
         theta = theta - u(j) * u(j)
     end
+    io.printf("local_maxwellian - 3\n")
     theta = theta / VDIM
     return rho, u, theta
 end
@@ -998,6 +1009,7 @@ local terraform nonlinear_maxwellian_inflow(
     -- the partially evaluated distribution function, that is the coefficients
     -- of the velocity basis at each quadrature point. With this information
     -- we can compute the velocity integrals.
+    io.printf("nonlinear_maxwellian_inflow - 0\n")
     var nq = normal:rows()
     var nv = xvlhs:cols()
     var qvlhs = [darray.DynamicMatrix(C.traits.eltype)].zeros(A, {nq, nv})
@@ -1015,12 +1027,13 @@ local terraform nonlinear_maxwellian_inflow(
     -- by using two more points.
     var maxtrialdegree = trialb.velocity:maxpartialdegree()
     var xq, wq = trialb.velocity:quadraturerule(A, maxtrialdegree + 2)
-    var qmaxwellian = [quote var q = range.zip(xq, wq) in &q end]
+    var qmaxwellian = range.zip(&xq, &wq)
     var halfmomq = [darray.DynamicMatrix(C.traits.eltype)].zeros(
                                                         A,
                                                         {nq,
                                                         testb:nvelocitydof()}
                                                     )
+    io.printf("nonlinear_maxwellian_inflow - 0\n")
     var qrange = [range.Unitrange(int64)].new(0, nq)
     var half = lambda.new(
             [
@@ -1031,28 +1044,28 @@ local terraform nonlinear_maxwellian_inflow(
                     qvlhs: qvlhs.type,
                     testb: testb.type,
                     trialb: trialb.type,
-                    qmaxwellian: qmaxwellian.type,
+                    qmaxwellian: &qmaxwellian.type,
                     normal: normal.type,
                     halfmomq: halfmomq.type
                 )
-                    var lhs = (
-                        [
-                            darray.DynamicVector(C.traits.eltype)
-                        ].new(A, qvlhs:cols())
-                    )
+                    io.printf("lambda - 0\n")
+                    var lhs = [darray.DynamicVector(C.traits.eltype)].new(A, qvlhs:cols())
+                    io.printf("lambda - 1\n")
                     for j = 0, qvlhs:cols() do
                         lhs(j) = qvlhs(i, j)
                     end
+                    io.printf("lambda - 2\n")
                     var rho, u, theta = local_maxwellian(
                                             &trialb.velocity, &lhs, qmaxwellian
                                         )
-
+                    io.printf("lambda - 3\n")
                     var un: rho.type = 0
                     escape
                         for j = 1, VDIM do
                             emit quote un = un + u(j - 1) * normal(i, j - 1) end
                         end
                     end
+                    io.printf("lambda - 4\n")
                     var mach = un / tmath.sqrt(2 * theta)
                     var inflow = -rho * tmath.sqrt(theta / (2 * tmath.pi)) * (
                         tmath.exp(-mach * mach)
@@ -1089,7 +1102,7 @@ local terraform nonlinear_maxwellian_inflow(
                     var outflow = -outmom:dot(&lhs)
 
                     transform(&rho, &u, &theta, inflow, outflow)
-
+                    io.printf("lambda - 2\n")
                     maxwellian_inflow(
                         A,
                         testb,
@@ -1107,12 +1120,12 @@ local terraform nonlinear_maxwellian_inflow(
                 qvlhs = qvlhs, 
                 testb = testb,
                 trialb = trialb,
-                qmaxwellian = qmaxwellian,
+                qmaxwellian = &qmaxwellian,
                 normal = normal,
                 halfmomq = halfmomq
             }
         )
-
+    io.printf("nonlinear_maxwellian_inflow - 1\n")
     thread.parfor(A, qrange, half)
     var halfmom = [darray.DynamicMatrix(C.traits.eltype)].zeros(
                                                         A,
