@@ -16,12 +16,14 @@ local vec = require("vector")
 local vecblas = require("vector_blas")
 local mat = require("matrix")
 local range = require("range")
+local serde = require("serde")
+local luafun = require("fun")
 local parametrized = require("parametrized")
 
 local size_t = uint64
 
 --global flag to perform boundscheck
-__boundscheck__ = true
+__boundscheck__ = false
 
 --there is a bug on macos that leads to undefined behavior for
 --simd vectors of size < 64 bytes. temporary fix is to always
@@ -35,7 +37,7 @@ local simd_fix_for_macos = function(T, N)
 end
 
 local function getcumsize(Size, Perm)
-    local Cumsize = terralib.newlist()
+    local Cumsize = {}
     Cumsize[1] = Size[ Perm[1] ]
     for k = 2, #Perm do
         Cumsize[k] = Cumsize[k-1] * Size[Perm[k]]
@@ -43,31 +45,30 @@ local function getcumsize(Size, Perm)
     return Cumsize
 end
 
+local function checksize(arraysize)
+    for i,v in ipairs(arraysize) do
+        assert(type(v) == "number" and v % 1 == 0 and v > 0, 
+            "Expected size argument to consist of positive integers.")
+    end
+end
+
 local SArrayRawType = function(typename, T, Size, options)
 
     --check input
     assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
-    local Size = terralib.newlist(Size)
-    assert(terralib.israwlist(Size) and #Size > 0, "ArgumentError: second argument should be a list denoting the size in each dimension.")
-    local Length = 1 --length of array
-    for i,v in ipairs(Size) do
-        assert(type(v) == "number" and v % 1 == 0 and v > 0, 
-            "Expected second to last argument to be positive integers.")
-        Length = Length * v
-    end
-
-    -- dimension of array
-    local Dimension = #Size
-    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    local Perm = options and options.perm and terralib.newlist(options.perm) or array.defaultperm(Dimension)
-    array.checkperm(Perm)
+    checksize(Size)
+    local Dimension = #Size -- dimension of array
+    local Perm = options.perm --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
+    array.checkperm(Perm, Dimension)
     --get cumulative sizes, which denote the cumulative leading dimensions of the array
     --default is computed from Size and Perm
-    local Cumsize = options and options.cumulative_size and terralib.newlist(options.cumulative_size) or getcumsize(Size, Perm)
-
+    local Cumsize = options.cumulative_size
+    assert(#Cumsize == #Size, "ArgumentError: cumulative size is inconsistent with array size.")
     --size of leading dimension
     local SizeL = Size[Perm[1]]
-    
+    --compute lenght of array
+    local Length = luafun.foldl(luafun.operator.mul, 1, Size)
+
     --generate static array struct
     local Array
     if concepts.Primitive(T) then
@@ -229,11 +230,10 @@ local SArrayVectorBase = function(Array)
     end
 
     --check if vector concept is satisfied
-    local CVector = concepts.Vector(T)
-    assert(CVector(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CVector))
+    local CTensor = concepts.Tensor(T)
+    assert(CTensor(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CTensor))
 
 end
-
 
 local SArrayMatrixBase = function(SMatrix)
     
@@ -258,14 +258,12 @@ local SArrayMatrixBase = function(SMatrix)
 
 end
 
-
 local SArrayIteratorBase = function(Array)
 
     local T = Array.traits.eltype
     local N = Array.traits.ndims
     local Unitrange = range.Unitrange(int)
-
-    local __uranges = Array.traits.size:map(function(s) return terralib.constant( terralib.new(Unitrange, {0, s}) ) end)
+    local __uranges = luafun.totable(luafun.map(function(s) return terralib.constant( terralib.new(Unitrange, {0, s}) ) end, Array.traits.size))
 
     --return linear indices product range
     terra Array:linear_indices()
@@ -290,8 +288,7 @@ local SArrayIteratorBase = function(Array)
     vec.IteratorBase(Array)
 end
 
-local StaticArray = function(T, Size, options)
-    
+local staticarray_type_generator = parametrized.type(function(T, Size, options)
     --print typename
     local function typename(traits)
         local sizes = "{"
@@ -304,7 +301,7 @@ local StaticArray = function(T, Size, options)
         perm = perm .. tostring(traits.perm[traits.ndims]) .. "}"
         return "StaticArray(" .. tostring(T) ..", " .. sizes .. ", perm = " .. perm .. ")"
     end
-
+    
     --generate the raw type
     local Array = SArrayRawType(typename, T, Size, options)
 
@@ -314,6 +311,18 @@ local StaticArray = function(T, Size, options)
     SArrayIteratorBase(Array)
 
     return Array
+end)
+
+local StaticArray = function(T, Size, options)
+    --handle options
+    local options = options or {}
+    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
+    options.perm = options.perm or array.defaultperm(#Size)
+    --get cumulative sizes, which denote the cumulative leading dimensions of the array
+    --default is computed from Size and Perm
+    options.cumulative_size = options.cumulative_size or getcumsize(Size, options.perm)
+
+    return staticarray_type_generator(T, Size, options)
 end
 
 --StaticVector is reimplemented separately from 'Array' because otherwise
@@ -325,7 +334,11 @@ local StaticVector = parametrized.type(function(T, N)
     end
 
     --generate the raw type
-    local SVector = SArrayRawType(typename, T, {N})
+    local Size = {N}
+    local options = {}
+    options.perm = array.defaultperm(1)
+    options.cumulative_size = getcumsize(Size, options.perm)
+    local SVector = SArrayRawType(typename, T, Size, options)
 
     --implement interfaces
     SArrayStackBase(SVector)
@@ -335,13 +348,14 @@ local StaticVector = parametrized.type(function(T, N)
     return SVector
 end)
 
-local TransposedSMatrix = function(ParentMatrix)
+local TransposedSMatrix = terralib.memoize(function(ParentMatrix)
 
     assert(ParentMatrix.traits.ndims == 2)
 
     local T = ParentMatrix.traits.eltype
-    local Size = terralib.newlist{ParentMatrix.traits.size[2], ParentMatrix.traits.size[1]}
-    local Perm = terralib.newlist{ParentMatrix.traits.perm[2], ParentMatrix.traits.perm[1]}
+    local Size = {ParentMatrix.traits.size[2], ParentMatrix.traits.size[1]}
+    local Perm = {ParentMatrix.traits.perm[2], ParentMatrix.traits.perm[1]}
+    local Cumsize = ParentMatrix.traits.cumsize
 
     local typename
     if concepts.Complex(T) then
@@ -354,7 +368,7 @@ local TransposedSMatrix = function(ParentMatrix)
         end
     end
 
-    local SMatrix = SArrayRawType(typename, T, Size, {perm=Perm} )
+    local SMatrix = SArrayRawType(typename, T, Size, {perm=Perm, cumulative_size=Cumsize} )
 
     --trait to signal that this is a transposed view
     SMatrix.traits.istransposed = true
@@ -377,18 +391,17 @@ local TransposedSMatrix = function(ParentMatrix)
     SArrayMatrixBase(SMatrix)
 
     return SMatrix
-end
+end)
 
-local StaticMatrix = parametrized.type(function(T, Size, options)
+local staticmatrix_type_generator = parametrized.type(function(T, Size, options)
 
+    --print typename
     local function typename(traits)
         return ("StaticMatrix(%s, {%d, %d})"):format(tostring(T), Size{1}, Size{2})
     end
-
+    
+    --generate the raw type
     local SMatrix = SArrayRawType(typename, T, Size, options)
-
-    --check that a matrix-type was generated
-    assert(SMatrix.traits.ndims == 2, "ArgumentError: second argument should be a table with matrix dimensions.")
 
     --implement interfaces
     SArrayStackBase(SMatrix)
@@ -409,9 +422,18 @@ local StaticMatrix = parametrized.type(function(T, Size, options)
     return SMatrix
 end)
 
-local SlicedSMatrix = function(ParentMatrix, ISlice, JSlice)
+local StaticMatrix = function(T, Size, options)
+    --handle options
+    local options = options or {}
+    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
+    options.perm = options.perm or array.defaultperm(2)
+    --get cumulative sizes, which denote the cumulative leading dimensions of the array
+    --default is computed from Size and Perm
+    options.cumulative_size = options.cumulative_size or getcumsize(Size, options.perm)
 
+    return staticmatrix_type_generator(T, Size, options)
 end
+
 
 return {
     StaticArray = StaticArray,

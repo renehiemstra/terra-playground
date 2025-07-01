@@ -75,7 +75,7 @@ end
 
 local serpent = require("serpent")
 local function serialize_table(tab)
-	return serpent.dump(tab, {sortkeys = true})
+	return serpent.dump(striplist(tab), {sortkeys = true})
 end
 local function deserialize_table(str)
 	return serpent.load(str)
@@ -123,8 +123,8 @@ end
 return {
   get_local_vars = get_local_vars,
   get_terra_types = get_terra_types,
-	serialize_table = serialize_table,
-	deserialize_table = deserialize_table,
-	serialize_pointertofunction = serialize_pointertofunction,
-	deserialize_pointertofunction = deserialize_pointertofunction,
+  serialize_table = serialize_table,
+  deserialize_table = deserialize_table,
+  serialize_pointertofunction = serialize_pointertofunction,
+  deserialize_pointertofunction = deserialize_pointertofunction,
 }

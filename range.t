@@ -57,7 +57,6 @@ end
 --method that collects all elements in the range in a container
 --that satsifies the 'Stacker(T)' interface
 local RangeBase = function(Range, iterator_t)
-
     --set base functionality for iterators
     IteratorBase(iterator_t)
 
@@ -68,37 +67,32 @@ local RangeBase = function(Range, iterator_t)
 
     --overloading '>>' operator
     Range.metamethods.__rshift = macro(function(self, adapter)
-        local self_type = self.tree.type
-        local adapter_type = adapter.tree.type
+        local self_type = self:gettype()
+        local adapter_type = adapter:gettype()
         if self_type:isstruct() and self_type.metamethods.__for 
             and adapter_type:isstruct() 
         then
+            --get the adapter type generator: TransformedRange, FilteredRange, etc
             local Adapter = adapter_type.generator
-            local A = Adapter(self_type, adapter_type)
-            -- HACK Trigger init() manually
-            -- Normally, we would do return `A {self, adapter}
-            -- However, the current RAII implementation does not cover all
-            -- possible cases for an init() call yet.
-            -- Below code first declares an element of type A and then
-            -- fills the entries of A by the corresponding value. The situation
-            -- is complicated by the fact that each adaptor has different
-            -- entries names. Hence, we need to do a little bit of meta
-            -- programming to extract the name of the struct field.
-            assert(#A.entries == 2)
-            local newrange = symbol(A)
-            return (
-                quote 
-                    escape
-                        emit quote var [newrange] end
-                        for i, v in ipairs{self, adapter} do
-                            local name = A.entries[i].field
-                            emit quote [newrange].[name] = v end
-                        end
-                    end
-                in
-                    [newrange]
+            --is the range an lvalue? or an rvalue? We emit different code
+            --based on this: if `self` is an lvalue then we pass by reference unless
+            --the user reqeusts `__move__`. In all other cases we pass by value.
+            --this is done to correctly handle managed variables and use borrowing
+            --where applicable, rather than taking ownership of the data.
+            local passbyref = self.tree.lvalue and self.tree.assignment~="move"
+            --pass field by reference or value?
+            local passfield = macro(function(v) 
+                if passbyref then 
+                    return `&v
+                else
+                    return `v
                 end
-            )
+            end)
+            --get adapter type
+            local A = Adapter(passbyref and &self_type or self_type, adapter_type)
+            assert(#A.entries == 2)
+            --return the new range
+            return `A{passfield(self), adapter}
         end
     end)
 
@@ -365,8 +359,8 @@ local infsteprange = parametrized.type(function(T)
     return range
 end)
 
-local Unitrange = parametrized.type(function(T, sentinal)
-    local sentinal = sentinal or "bounded"
+local Unitrange = parametrized.type(function(T, options)
+    local sentinal = options.sentinal
     if sentinal == "bounded" then
         return unitrange(T)
     elseif sentinal == "infinite" then
@@ -374,10 +368,10 @@ local Unitrange = parametrized.type(function(T, sentinal)
     else
         error("ArgumentError: second (optional) argument should be 'bounded' or 'infinite'.")
     end
-end)
+end, {sentinal = "bounded"})
 
-local Steprange = parametrized.type(function(T, sentinal)
-    local sentinal = sentinal or "bounded"
+local Steprange = parametrized.type(function(T, options)
+    local sentinal = options.sentinal
     if sentinal == "bounded" then
         return steprange(T)
     elseif sentinal == "infinite" then
@@ -385,7 +379,7 @@ local Steprange = parametrized.type(function(T, sentinal)
     else
         error("ArgumentError: second (optional) argument should be 'bounded' or 'infinite'.")
     end
-end)
+end, {sentinal = "bounded"})
 
 local TransformedRange = function(Range, Function)
 
@@ -397,8 +391,11 @@ local TransformedRange = function(Range, Function)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(transform)
 
-    local iterator_t = Range.iterator_t
-    local T = Range.value_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+
+    local iterator_t = range_t.iterator_t
+    local T = range_t.value_t
 
     local eval = macro(function(self, value)
         if T.convertible=="tuple" then --we always unpack tuples
@@ -449,8 +446,11 @@ local FilteredRange = function(Range, Function)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(filter)
 
-    local iterator_t = Range.iterator_t
-    local T = Range.value_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+
+    local iterator_t = range_t.iterator_t
+    local T = range_t.value_t
 
     --evaluate predicate
     local pred = macro(function(self, value)
@@ -508,6 +508,9 @@ local TakeRange = function(Range)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(take)
 
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local Range = Range:ispointer() and Range.type or Range
+
     local iterator_t = Range.iterator_t
 
     local struct iterator{
@@ -549,7 +552,9 @@ local DropRange = function(Range)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(drop)
 
-    local iterator_t = Range.iterator_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+    local iterator_t = range_t.iterator_t
 
     local struct iterator{
         adapter : &drop
@@ -594,8 +599,11 @@ local TakeWhileRange = function(Range, Function)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(takewhile)
 
-    local iterator_t = Range.iterator_t
-    local T = Range.value_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+
+    local iterator_t = range_t.iterator_t
+    local T = range_t.value_t
 
     --evaluate predicate
     local pred = macro(function(self, value)
@@ -647,8 +655,11 @@ local DropWhileRange = function(Range, Function)
     --allowing concepts-based function overloading at compile-time
     base.AbstractBase(dropwhile)
 
-    local iterator_t = Range.iterator_t
-    local T = Range.value_t
+    --Range may be passed as a pointer-type, so we extract the underlying type
+    local range_t = Range:ispointer() and Range.type or Range
+
+    local iterator_t = range_t.iterator_t
+    local T = range_t.value_t
 
     --evaluate predicate
     local pred = macro(function(self, value)
@@ -775,21 +786,7 @@ local combiner_factory = function(Combiner)
         --construct the combirange type and instantiate 
         --terra obj
         local combirange = Combiner(range_types, options)
-        return quote
-            --var range = combirange{[ranges]}
-            var range : combirange
-            --HACK: needed for now because initializers don't work correctly
-            --with raii
-            escape
-                for i,e in ipairs(combirange:getentries()) do
-                    emit quote
-                        range.[e.field] = [ ranges[i] ]
-                    end
-                end
-            end
-        in
-            range
-        end
+        return `combirange{[ranges]}
     end)
     return combiner
 end
@@ -836,7 +833,7 @@ local Enumerator = function(Ranges)
     return enumerator
 end
 
-local JoinRange = function(Ranges)
+local JoinRange = terralib.memoize(function(Ranges)
 
     local joiner = newcombiner(Ranges, "joiner")
     --add methods, staticmethods and templates tablet and template fallback mechanism 
@@ -922,9 +919,9 @@ local JoinRange = function(Ranges)
     RangeBase(joiner, iterator, T)
     
     return joiner
-end
+end)
 
-local ZipRange = function(Ranges)
+local ZipRange = terralib.memoize(function(Ranges)
   
     local zipper = newcombiner(Ranges, "zip")
     --add methods, staticmethods and templates tablet and template fallback mechanism 
@@ -1000,9 +997,9 @@ local ZipRange = function(Ranges)
     RangeBase(zipper, iterator)
 
     return zipper
-end
+end)
 
-local ProductRange = function(Ranges, options)
+local ProductRange = terralib.memoize(function(Ranges, options)
 
     --perm is a sequence of numbers denoting the perm in which the
     --product iterator iterates.
@@ -1093,7 +1090,7 @@ local ProductRange = function(Ranges, options)
     RangeBase(product, iterator)
 
     return product
-end
+end)
 
 
 local FoldLeft = function(Range, Function)

@@ -121,10 +121,10 @@ local concept Range
 end
 
 local concept Stack(T) where {T}
-    Self.traits.eltype = traittag
+    Self.traits.eltype = T
     Self.methods.get  = {&Self, Integer} -> T
     Self.methods.set  = {&Self, Integer, T} -> {}
-    Self.methods.size = {&Self} -> Integer
+    Self.methods.length = {&Self} -> Integer
 end
 
 local concept DStack(T) where {T}
@@ -134,9 +134,19 @@ local concept DStack(T) where {T}
     Self.methods.capacity = {&Self} -> Integer
 end
 
+local concept Tensor(T) where {T}
+    Self:inherit(Stack(T))
+    Self.traits.ndims = traittag
+    Self.traits.perm = traittag
+end
+
+concept Tensor(T, N) where {T, N}
+    Self.traits.ndims = N
+end
+
 local concept Vector(T) where {T}
+    Self:inherit(Tensor(T, 1))
     local S = Stack(T)
-    Self:inherit(S)
     Self.methods.fill  = {&Self, T} -> {}
     Self.methods.copy = {&Self, &S} -> {}
     Self.methods.swap = {&Self, &S} -> {}
@@ -164,12 +174,6 @@ local concept BLASVector(T) where {T : BLASNumber}
     Self.methods.getblasinfo = {&Self} -> {Integer, BLASNumber, Integer}
 end
 
-local concept MatrixStack(T) where {T}
-    --Self.methods.size = {&Self, Integer} -> Integer
-    Self.methods.get = {&Self, Integer, Integer} -> {T}
-    Self.methods.set = {&Self, Integer, Integer, T} -> {}
-end
-
 local concept Operator(T) where {T}
     --Self.methods.rows = {&Self} -> Integer
     --Self.methods.cols = {&Self} -> Integer
@@ -177,8 +181,8 @@ local concept Operator(T) where {T}
 end
 
 local concept Matrix(T) where {T}
-    local S = MatrixStack(T)
-    Self:inherit(S)
+    local A = Tensor(T, 2)
+    Self:inherit(A)
 
     --Self.methods.set = {&Self, Integer, Integer, T} -> {}
     --Self.methods.get = {&Self, Integer, Integer} -> {T}
@@ -262,7 +266,6 @@ return {
     Vector = Vector,
     ContiguousVector = ContiguousVector,
     BLASVector = BLASVector,
-    MatrixStack = MatrixStack,
     Operator = Operator,
     Matrix = Matrix,
     Transpose = Transpose,
@@ -271,4 +274,5 @@ return {
     Packed = Packed,
     SparsePacked = SparsePacked,
     DensePacked = DensePacked,
+    Tensor = Tensor,
 }

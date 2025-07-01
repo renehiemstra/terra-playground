@@ -8,7 +8,6 @@
 require "terralibext"
 
 local C = terralib.includecstring[[
-    #include <stdio.h>
     #include <string.h>
 ]]
 
@@ -16,32 +15,22 @@ local base = require("base")
 local interface = require("interface")
 local range = require("range")
 local err = require("assert")
+local serde = require("serde")
+local parametrized = require("parametrized")
 
 local size_t = uint64
 local u8 = uint8
 
-local function ismanaged(args)
-    local T, method = args.type, args.method
-    if not T:isstruct() then
-        return false
-    end
-    terralib.ext.addmissing[method](T)
-    if T.methods[method] then
-        return true
-    end
-    return false
-end
+import "terraform"
 
 local function Base(block, T, options)
 
-    local options = terralib.newlist(options)
-    options.copyby = options.copyby or "view"
-    --copy-assignment is one of the following three options
-    local valid_copyby = {["move"] = true, ["view"] = true, ["clone"] = true}
     assert(
-        valid_copyby[options.copyby],
-        "Provided invalid option " .. options.copyby .. " for copy constructor"
+        options and type(options.copyable)=="boolean",
+        "Invalid option. Please provide {copyable = true / false}"
     )
+    --is the type copyable? Default to false.
+    local copyable = options.copyable or false
 
     --type traits
     block.isblock = true
@@ -82,19 +71,14 @@ local function Base(block, T, options)
             return self.nbytes / [block.elsize]
         end
     end
-
-    --initialize to empty block
-    block.methods.__init = terra(self : &block)
-        self.ptr = nil
-        self.nbytes = 0
-        self.alloc.data = nil
-        self.alloc.ftab = nil
-    end
+    
+    --auto-generate __init method
+    terralib.ext.addmissing.__init(block)
+    block.methods.length = block.methods.size
 
     --exact clone of the block
     block.methods.clone = terra(self : &block)
-        --allocate memory for exact clone
-        var newblk : block
+        var newblk : block --allocate memory for exact clone
         if not self:isempty() then
             self.alloc:__allocators_best_friend(&newblk, [ block.elsize ], self:size())
             if not newblk:isempty() then
@@ -103,41 +87,6 @@ local function Base(block, T, options)
         end
         return newblk
     end
-
-    --specialized copy-assignment, moving resources over
-    if options.copyby == "move" then
-
-        block.methods.__copy = terra(from : &block, to : &block)
-            --set to
-            to.ptr = from.ptr
-            to.nbytes = from.nbytes
-            to.alloc = from.alloc
-            --reset from
-            from:__init()
-        end
-
-    --specialized copy-assignment, returning a non-owning view of the data
-    elseif options.copyby == "view" then
-
-        block.methods.__copy = terra(from : &block, to : &block)
-            to.ptr = from.ptr
-            to.nbytes = from.nbytes
-            --no allocator
-            to.alloc.data = nil
-            to.alloc.ftab = nil
-        end
-
-    --specialized copy-assignment, returning a deepcopy or clone
-    elseif options.copyby == "clone" then
-
-        block.methods.__copy = terra(from : &block, to : &block)
-            @to = from:clone()
-        end
-
-    end
-
-    --add raii move method
-    terralib.ext.addmissing.__move(block)
 
 end
 
@@ -158,10 +107,9 @@ function block.metamethods.__typename(self)
     return "block"
 end
 
-base.AbstractBase(block)
-
 --add base functionality
-Base(block, opaque)
+base.AbstractBase(block)
+Base(block, opaque, {copyable=false})
 
 --__dtor for opaque memory block
 terra block.methods.__dtor(self : &block)
@@ -171,11 +119,20 @@ terra block.methods.__dtor(self : &block)
         self.alloc:__allocators_best_friend(self, 0, 0)
     end
 end
+
+--add raii move method
+terralib.ext.addmissing.__move(block)
 block:complete()
 
 
 --abstraction of a memory block with type information.
-local SmartBlock = terralib.memoize(function(T, options)
+local SmartBlock = parametrized.type(function(T, options)
+
+    assert(type(options.copyable)=="boolean",
+        "Invalid option. Expected copyable to be a boolean."
+    )
+    --is the type copyable? Default to false.
+    local copyable = options.copyable
 
     local struct block{
         ptr : &T
@@ -203,49 +160,60 @@ local SmartBlock = terralib.memoize(function(T, options)
         if not to.isblock or not from.isblock then
             error("Arguments to cast need to be of generic type SmartBlock.")
         end
-        --perform cast
-        if byvalue then
-            --case when to.eltype is a managed type
-            if ismanaged{type=to.traits.eltype, method="__init"} then
+        --based on passing-by-reference or by-value we return a different parameter
+        local returnfromcast = macro(function(blk)
+            if byvalue then
                 return quote
-                    var tmp = __handle__(exp)
-                    --debug check if sizes are compatible, that is, is the
-                    --remainder zero after integer division
-                    --err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
-                    --loop over all elements of blk and initialize their entries 
-                    var size = tmp:size_in_bytes() / [to.elsize]
-                    var ptr = [&to.traits.eltype](tmp.ptr)
-                    for i = 0, size do
-                        ptr:__init()
-                        ptr = ptr + 1
-                    end
                 in
-                    [to.type]{[&to.traits.eltype](tmp.ptr), tmp.nbytes, tmp.alloc}
+                    [to.type]{[&to.traits.eltype](blk.ptr), blk.nbytes, blk.alloc}
                 end
-            --simple case when to.eltype is not managed
             else
                 return quote
-                    var tmp = __handle__(exp)
-                    --debug check if sizes are compatible, that is, is the
-                    --remainder zero after integer division
-                    --err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
                 in
-                    [to.type]{[&to.traits.eltype](tmp.ptr), tmp.nbytes, tmp.alloc}
+                    [&to.type](blk)
                 end
             end
-        else
-            --passing by reference
-            terralib.ext.addmissing.__forward(from.type)
+        end) 
+        --perform cast
+        --case when and opaque block is cast to a SmartBlock with a managed element 
+        --type (implements a '__dtor')
+        --note: the opaque memory is first cast to the new (managed) element type
+        --and is then initialized with the '__init' method to make sure that the 
+        --uninitialized memory is initialized with the correct initializer.
+        if terralib.ext.ismanaged(to.traits.eltype) and from.traits.eltype==opaque then
             return quote
-                --var blk = exp invokes __copy, so we turn exp into an rvalue such
-                --that __copy is not called
-                var blk = exp
-                --err.assert(blk:size_in_bytes() % [to.elsize]  == 0)
+                --we get a handle to the object, which means we get an lvalue that 
+                --does not own the resource, so it's '__dtor' will not be called
+                var tmp = __handle__(exp)
+                --debug check if sizes are compatible, that is, is the
+                --remainder zero after integer division
+                err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
+                --loop over all elements of blk and initialize their entries. This 
+                --is done to correctly initialize the uninitialized memory.
+                var size = tmp:size_in_bytes() / [to.elsize]
+                var ptr = [&to.traits.eltype](tmp.ptr)
+                for i = 0, size do
+                    ptr:__init()
+                    ptr = ptr + 1
+                end
             in
-                [&to.type](blk)
+                returnfromcast(tmp)
+            end
+        --simple case when to.eltype is not managed
+        else
+            return quote
+                var tmp = __handle__(exp)
+                --debug check if sizes are compatible, that is, is the
+                --remainder zero after integer division
+                err.assert(tmp:size_in_bytes() % [to.elsize]  == 0)
+            in
+                returnfromcast(tmp)
             end
         end
     end --__cast
+
+    --declaring __dtor for use in implementation below
+    terra block.methods.__dtor :: {&block} -> {}
 
     function block.metamethods.__staticinitialize(self)
 
@@ -254,18 +222,18 @@ local SmartBlock = terralib.memoize(function(T, options)
 
         --setters and getters
         block.methods.get = terra(self : &block, i : size_t)
-            --err.assert(i < self:size())
+            err.assert(i < self:size())
             return self.ptr[i]
         end
 
         block.methods.set = terra(self : &block, i : size_t, v : T)
-            --err.assert(i < self:size())
+            err.assert(i < self:size())
             self.ptr[i] = v
         end
 
         block.metamethods.__apply = macro(function(self, i)
             return quote
---                err.assert(i < self:size())
+                err.assert(i < self:size())
             in
                 self.ptr[i]
             end
@@ -310,13 +278,10 @@ local SmartBlock = terralib.memoize(function(T, options)
         terra block:reallocate(size : size_t)
             self.alloc:__allocators_best_friend(self, sizeof(T), size)
         end
-
-        --declaring __dtor for use in implementation below
-        terra block.methods.__dtor :: {&block} -> {}
         
         --implementation __dtor
         --ToDo: change recursion to a loop
-        local terra __dtor(self : &block)
+        terra block.methods.__dtor(self : &block)
             --insert metamethods.__dtor if defined, which is used to introduce
             --side effects (e.g. counting number of calls for the purpose of testing)
             escape
@@ -338,7 +303,7 @@ local SmartBlock = terralib.memoize(function(T, options)
             --first destroy other memory block resources pointed to by self.ptr
             --ToDo: change recursion into a loop
             escape
-                if ismanaged{type=T,method="__dtor"} then
+                if terralib.ext.ismanaged(T) then
                     emit quote
                         var ptr = self.ptr
                         for i = 0, self:size() do
@@ -352,18 +317,66 @@ local SmartBlock = terralib.memoize(function(T, options)
             self.alloc:__allocators_best_friend(self, 0, 0)
         end
 
-        --call implementation
-        terra block.methods.__dtor(self : &block)
-            __dtor(self)
+        --conditional compilation of a copy-method
+        if copyable then
+            block.methods.__copy = terra(from : &block, to : &block)
+                --to:__dtor() is injected here by the compiler
+                @to = from:clone()
+            end
         end
+
+        --add raii move method
+        terralib.ext.addmissing.__move(block)
 
     end --__staticinitialize
 
-	return block
-end)
+    return block
+end, {copyable=false})
+
+--Abstraction of a single object that is stored on the heap.
+--Do not memoize this function (memoization is done in SmartBlock)
+--Remember, memoization requires that 'option' tables are serialized.
+--This is done in 'SmartBlock'
+local SmartObject = function(obj, options)
+
+    --SmartObject is a special SmartBlock that has one element
+    --see `new` method below
+    --it's a heap object that has direct access to the fields of
+    --the 'obj' type (using __entrymissing and __methodmissing)
+    local smrtobj = SmartBlock(obj, options)
+
+    --allocate an empty obj
+    terraform smrtobj.staticmethods.new(A) where {A}
+        var S: smrtobj = A:new(sizeof(obj), 1)
+        return S
+    end
+
+    smrtobj.metamethods.__getmethod = function(self, methodname)
+        local fnlike = self.methods[methodname] or smrtobj.staticmethods[methodname]
+        --if no implementation is found try __methodmissing
+        if not fnlike and terralib.ismacro(self.metamethods.__methodmissing) then
+            fnlike = terralib.internalmacro(function(ctx, tree, ...)
+                return self.metamethods.__methodmissing:run(ctx, tree, methodname, ...)
+            end)
+        end
+        return fnlike
+    end
+
+    smrtobj.metamethods.__entrymissing = macro(function(entryname, self)
+        return `self.ptr.[entryname]
+    end)
+
+    smrtobj.metamethods.__methodmissing = macro(function(method, self, ...)
+        local args = terralib.newlist{...}
+        return `self.ptr:[method](args)
+    end)
+
+    return smrtobj
+end
 
 
 return {
     block = block,
-    SmartBlock = SmartBlock
+    SmartBlock = SmartBlock,
+    SmartObject = SmartObject
 }

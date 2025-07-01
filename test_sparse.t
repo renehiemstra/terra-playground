@@ -87,10 +87,10 @@ for T, tol in pairs(tols) do
                     var rows = 5
                     var c = CSR.new(&alloc, rows, rows)
                     for i = 0, rows do
-                        c:set(i, i, 2)
+                        c:set(i, i, [T](2))
                     end
                     for i = 1, rows do
-                        c:set(i, i - 1, -1)
+                        c:set(i, i - 1, [T](-1))
                     end
                     var xv = Vec.from(&alloc, {1, 2, 3, 4, 5})
                     var yv = Vec.ones(&alloc, 5)
@@ -109,17 +109,17 @@ for T, tol in pairs(tols) do
 
             testset "Mult" do
                 terracode
-                    var rows = 250
-                    var cols = 200
+                    var rows = 1500
+                    var cols = 1000
                     var a = CSR.new(&alloc, rows, rows)
                     for i = 0, rows do
-                        a:set(i, i, 3)
+                        a:set(i, i, [T](3))
                     end
                     for i = 1, rows do
-                        a:set(i, i - 1, -1)
+                        a:set(i, i - 1, [T](-1))
                     end
                     for i = 0, rows - 1 do
-                        a:set(i, i + 1, -1)
+                        a:set(i, i + 1, [T](-1))
                     end
                     var b = Mat.new(&alloc, {rows, cols})
                     b:fill([T](2))

@@ -36,12 +36,12 @@ for T, tol in pairs(tols) do
                 terracode
                     var rows = 2
                     var a = CSR.new(&alloc, rows, rows)
-                    a:set(0, 0, 1)
-                    a:set(0, 1, 2)
-                    a:set(1, 0, 3)
-                    a:set(1, 1, 4)
+                    a:set(0, 0, [T](1))
+                    a:set(0, 1, [T](2))
+                    a:set(1, 0, [T](3))
+                    a:set(1, 1, [T](4))
                     var ap: packed.SparsePackedFactory(T, I, 32, 32)
-                    ap:pack(&a, 0, 0)
+                    ap:pack(&a, [T](1), 0, 0)
                 end
                 test ap.Ap[0] == 1
                 test ap.Ap[1] == 3
@@ -65,13 +65,13 @@ for T, tol in pairs(tols) do
                     var rows = 5
                     var a = CSR.new(&alloc, rows, rows)
                     for i = 1, rows - 1 do
-                        a:set(i, i, i + 1)
+                        a:set(i, i, [T](i + 1))
                         if i ~= rows / 2 then
-                            a:set(i, rows - i - 1, -i - 1)
+                            a:set(i, rows - i - 1, [T](-i - 1))
                         end
                     end
                     var ap: packed.SparsePackedFactory(T, I, 32, 32)
-                    ap:pack(&a, 0, 0)
+                    ap:pack(&a, [T](1), 0, 0)
                 end
                 test ap.Ap[0] == 2
                 test ap.Ap[1] == -4
@@ -99,13 +99,13 @@ for T, tol in pairs(tols) do
                     var rows = 5
                     var a = CSR.new(&alloc, rows, rows)
                     for i = 1, rows - 1 do
-                        a:set(i, i, i + 1)
+                        a:set(i, i, [T](i + 1))
                         if i ~= rows / 2 then
-                            a:set(i, rows - i - 1, -i - 1)
+                            a:set(i, rows - i - 1, [T](-i - 1))
                         end
                     end
                     var ap: packed.SparsePackedFactory(T, I, 32, 32)
-                    ap:pack(&a, 1, 1)
+                    ap:pack(&a, [T](1), 1, 1)
                 end
                 test ap.Ap[0] == 2
                 test ap.Ap[1] == -4

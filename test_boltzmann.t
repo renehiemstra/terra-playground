@@ -16,7 +16,6 @@ local sparse = require("sparse")
 local gauss = require("gauss")
 local tmath = require("tmath")
 local range = require("range")
-local io = terralib.includec("stdio.h")
 -- Compiled terra code, reimported for integration/unit testing
 local bc = terralib.includec("./nonlinearbc.h")
 
@@ -225,12 +224,12 @@ testenv "Full Phasespace Integral" do
                 ndim,
                 &normal(0, 0),
                 --
-                testx.data:size(),
+                testx.data:length(),
                 &testx.data(0),
                 &testx.col(0),
                 &testx.rowptr(0),
                 --
-                trialx.data:size(),
+                trialx.data:length(),
                 &trialx.data(0),
                 &trialx.col(0),
                 &trialx.rowptr(0),
@@ -298,7 +297,8 @@ testenv "Half space integral interface" do
         var bndU = arrayof(double, 1e-2, 0.0, 0.0)
         var bndtheta = 1.375
         bc.halfspace(
-            ensrho,
+            &ensU[0],
+            enstheta,
             &ensU[0],
             enstheta,
             pte:rows(),

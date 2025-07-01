@@ -125,130 +125,143 @@ terraform checkallcartesian(A : &V, rn : R) where {V : Range, R : Range}
     return true
 end
 
+
+--check that types are generated uniquely through serialization/deserialization of options
+assert(darray.DynamicArray(double, 3) == darray.DynamicArray(double, 3, {copyable=false}) )
+
 --testing 3D array of one fixed size {2,3,4} and different permutations
-for _,Perm in ipairs{ {3,2,1}, {1,2,3} } do
-    for _,T in ipairs{int, double} do
+--and for value-semantics and move-semantics (copyable=true/false)
+for _,copyable in ipairs{false, true} do
+    for _,Perm in ipairs{ {3,2,1}, {1,2,3} } do
+        for _,T in ipairs{int, double} do
 
-        testenv(T, Perm) "Arbitrary dimension arrays" do
+            testenv(T, Perm, copyable) "Arbitrary dimension arrays" do
 
-            local linrange = range.Unitrange(T)
-            local DArray = darray.DynamicArray(T, 3, {perm=Perm} )
+                local linrange = range.Unitrange(T)
+                local DArray = darray.DynamicArray(T, 3, {perm=Perm, copyable=copyable} )
 
-            terracode
-                var alloc : DefaultAllocator
-                var A = DArray.new(&alloc, {2, 3, 4})
-                for count, indices in range.enumerate(A:cartesian_indices()) do
-                    A:set(unpacktuple(indices), count)
-                end
-            end
+                assert(DArray.methods.__init, "__init is not implemented")
+                assert(DArray.methods.__dtor, "__dtor is not implemented")
+                assert(DArray.methods.__move, "__move is not implemented")
+                if copyable then assert(DArray.methods.__copy, "__copy is not implemented") end
 
-            testset "size, length, set, get, perm" do
-                test A:size(0) == 2 and A:size(1) == 3 and A:size(2) == 4
-                test A:perm(0) == [ Perm[1] ] and A:perm(1) == [ Perm[2] ] and A:perm(2) == [ Perm[3] ]
-                test A:length() == 24
-                test tmath.isapprox(&A, linrange{0,24}, 0)
-                test checkallcartesian(&A, linrange{0,24})
-            end
-
-            testset "all, ones, zeros" do
                 terracode
-                    var C = DArray.all(&alloc, {2, 3, 4}, 2)
-                    var D = DArray.zeros(&alloc, {2, 3, 4})
-                    var E = DArray.ones(&alloc, {2, 3, 4})
+                    var alloc : DefaultAllocator
+                    var A = DArray.new(&alloc, {2, 3, 4})
+                    for count, indices in range.enumerate(A:cartesian_indices()) do
+                        A:set(unpacktuple(indices), count)
+                    end
                 end
-                test tmath.isapprox(&C, 2, 0)
-                test tmath.isapprox(&D, 0, 0)
-                test tmath.isapprox(&E, 1, 0)
-            end
 
-            testset "copy" do
-                terracode
-                    var Y = DArray.all(&alloc, {2, 3, 4}, 2)
-                    var X = DArray.zeros(&alloc, {2, 3, 4})
-                    X:copy(&Y)
+                testset "size, length, set, get, perm" do
+                    test A:size(0) == 2 and A:size(1) == 3 and A:size(2) == 4
+                    test A:perm(0) == [ Perm[1] ] and A:perm(1) == [ Perm[2] ] and A:perm(2) == [ Perm[3] ]
+                    test A:length() == 24
+                    test tmath.isapprox(&A, linrange{0,24}, 0)
+                    test checkallcartesian(&A, linrange{0,24})
                 end
-                test tmath.isapprox(&X, 2, 0)
-            end
 
-            testset "swap" do
-                terracode
-                    var C = DArray.ones(&alloc, {2, 3, 4})
-                    A:swap(&C)
+                testset "all, ones, zeros" do
+                    terracode
+                        var C = DArray.all(&alloc, {2, 3, 4}, 2)
+                        var D = DArray.zeros(&alloc, {2, 3, 4})
+                        var E = DArray.ones(&alloc, {2, 3, 4})
+                    end
+                    test tmath.isapprox(&C, 2, 0)
+                    test tmath.isapprox(&D, 0, 0)
+                    test tmath.isapprox(&E, 1, 0)
                 end
-                test tmath.isapprox(&C, linrange{0,24}, 0)
-                test tmath.isapprox(&A, T(1), 0)
-            end
 
-            testset "fill" do
-                terracode
-                    var X = DArray.zeros(&alloc, {2, 3, 4})
-                    X:fill(2)
+                testset "copy" do
+                    terracode
+                        var Y = DArray.all(&alloc, {2, 3, 4}, 2)
+                        var X = DArray.zeros(&alloc, {2, 3, 4})
+                        X:copy(&Y)
+                    end
+                    test tmath.isapprox(&X, 2, 0)
                 end
-                test tmath.isapprox(&X, 2, 0)
-            end
 
-            testset "scal" do
-                terracode
-                    var X = DArray.all(&alloc, {2, 3, 4}, 2)
-                    X:scal(T(2))
+                testset "swap" do
+                    terracode
+                        var C = DArray.ones(&alloc, {2, 3, 4})
+                        A:swap(&C)
+                    end
+                    test tmath.isapprox(&C, linrange{0,24}, 0)
+                    test tmath.isapprox(&A, T(1), 0)
                 end
-                test tmath.isapprox(&X, 4, 0)
-            end
 
-            testset "axpy" do
-                terracode
-                    var X = DArray.all(&alloc, {2, 3, 4}, 2)
-                    var Y = DArray.all(&alloc, {2, 3, 4}, 3)
-                    Y:axpy(T(4), &X)
+                testset "fill" do
+                    terracode
+                        var X = DArray.zeros(&alloc, {2, 3, 4})
+                        X:fill(2)
+                    end
+                    test tmath.isapprox(&X, 2, 0)
                 end
-                test tmath.isapprox(&Y, 11, 0)
-            end
 
-            testset "dot" do
-                terracode
-                    var X = DArray.all(&alloc, {2, 3, 4}, 2)
-                    var Y = DArray.all(&alloc, {2, 3, 4}, 3)
-                    var s = Y:dot(&X)
-                end
-                test s == 24 * 6
-            end
-
-            testset "norm2" do
-                terracode
-                    var X = DArray.all(&alloc, {2, 3, 4}, 2)
-                    var s1 = X:norm2()
-                end
-                test s1 == 24 * 4
-            end
-
-            if concepts.Float(T) then
-                testset "norm" do
+                testset "scal" do
                     terracode
                         var X = DArray.all(&alloc, {2, 3, 4}, 2)
-                        var s1 = X:norm()
+                        X:scal(T(2))
                     end
-                    test tmath.isapprox(s1, tmath.sqrt(24. * 4.), 1e-15)
+                    test tmath.isapprox(&X, 4, 0)
                 end
-            end
 
-            testset "ranges" do
-                terracode
-                    var s = 0
-                    for a in A do
-                        s = s + a
+                testset "axpy" do
+                    terracode
+                        var X = DArray.all(&alloc, {2, 3, 4}, 2)
+                        var Y = DArray.all(&alloc, {2, 3, 4}, 3)
+                        Y:axpy(T(4), &X)
+                    end
+                    test tmath.isapprox(&Y, 11, 0)
+                end
+
+                testset "dot" do
+                    terracode
+                        var X = DArray.all(&alloc, {2, 3, 4}, 2)
+                        var Y = DArray.all(&alloc, {2, 3, 4}, 3)
+                        var s = Y:dot(&X)
+                    end
+                    test s == 24 * 6
+                end
+
+                testset "norm2" do
+                    terracode
+                        var X = DArray.all(&alloc, {2, 3, 4}, 2)
+                        var s1 = X:norm2()
+                    end
+                    test s1 == 24 * 4
+                end
+
+                if concepts.Float(T) then
+                    testset "norm" do
+                        terracode
+                            var X = DArray.all(&alloc, {2, 3, 4}, 2)
+                            var s1 = X:norm()
+                        end
+                        test tmath.isapprox(s1, tmath.sqrt(24. * 4.), 1e-15)
                     end
                 end
-                test s == 12 * 23
-            end
 
-        end -- testenv(T,Perm)
+                testset "ranges" do
+                    terracode
+                        var s = 0
+                        for a in A do
+                            s = s + a
+                        end
+                    end
+                    test s == 12 * 23
+                end
 
+            end -- testenv(T,Perm)
+
+        end
     end
 end
 
-
 for _,T in ipairs{int,float,double,float256} do
 
+    --check that types are generated uniquely through serialization/deserialization of options
+    assert( darray.DynamicVector(T) == darray.DynamicVector(T, {copyable=false}) )
     local DVector = darray.DynamicVector(T)
 
     for N=2,4 do
@@ -428,10 +441,11 @@ for _,T in ipairs{int,float,double,float256} do
 
 end --T
 
-
 --testing dynamic matrices of different length and type
 for _,T in ipairs{float, double, float128, int, cint, cfloat, cdouble, cfloat128} do
     
+    --check that types are generated uniquely through serialization/deserialization of options
+    assert( darray.DynamicMatrix(T) == darray.DynamicMatrix(T, {copyable=false}) )
     local DMatrix = darray.DynamicMatrix(T)
 
     for N=2,4 do
@@ -496,7 +510,7 @@ for _,T in ipairs{int, float, double, float128} do
 
     local Concept = {
         Stack = concepts.Stack(T),
-        Vector = concepts.Vector(T),
+        Tensor = concepts.Tensor(T),
         Matrix = concepts.Matrix(T),
         Range = concepts.Range
     }
@@ -513,11 +527,11 @@ for _,T in ipairs{int, float, double, float128} do
         end
 
         --test basic concepts
-        test [ Concept.Vector(DMatrix)]
+        test [ Concept.Tensor(DMatrix)]
         test [ Concept.Range(DMatrix) ]
         --check of transpose type isa Matrix, Vector and Range
         test [ Concept.Matrix(B.type.type)]
-        test [ Concept.Vector(B.type.type)]
+        test [ Concept.Tensor(B.type.type)]
         test [ Concept.Range(B.type.type) ]
 
         testset "transpose" do
@@ -614,7 +628,6 @@ for _,T in ipairs{int, float, double, float128} do
     end
 end
 
-
 for _,T in ipairs{cint, cfloat, cdouble, cfloat128} do
 
     local DMatrix = darray.DynamicMatrix(T)
@@ -623,7 +636,7 @@ for _,T in ipairs{cint, cfloat, cdouble, cfloat128} do
 
     local Concept = {
         Stack = concepts.Stack(T),
-        Vector = concepts.Vector(T),
+        Tensor = concepts.Tensor(T),
         Matrix = concepts.Matrix(T),
         Range = concepts.Range
     }
@@ -640,11 +653,11 @@ for _,T in ipairs{cint, cfloat, cdouble, cfloat128} do
         end
 
         --test basic concepts
-        test [ Concept.Vector(A.type)]
+        test [ Concept.Tensor(A.type)]
         test [ Concept.Range(A.type) ]
         --check of transpose type isa Matrix, Vector and Range
         test [ Concept.Matrix(B.type.type)]
-        test [ Concept.Vector(B.type.type)]
+        test [ Concept.Tensor(B.type.type)]
         test [ Concept.Range(B.type.type) ]
 
         testset "transpose" do

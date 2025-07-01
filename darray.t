@@ -18,29 +18,36 @@ local stack = require("stack")
 local mat = require("matrix")
 local range = require("range")
 local tup = require("tuple")
+local serde = require("serde")
+local luafun = require("fun")
 local parametrized = require("parametrized")
 
-local luafun = require("fun")
+import "terraform"
 
 local Allocator = alloc.Allocator
 local size_t = uint64
 
 --global flag to perform boundscheck
-__boundscheck__ = true
+__boundscheck__ = false
 
 
+--'DArrayRawType' is used by all dynamic array implementations. So we don't want
+--to memoize this function.
 local DArrayRawType = function(typename, T, Dimension, options)
 
     --check input
-    assert(terralib.types.istype(T), "ArgumentError: first argument is not a valid terra type.")
-
-    --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
-    local Perm = options and options.perm and terralib.newlist(options.perm) or array.defaultperm(Dimension)
-    array.checkperm(Perm)
+    array.checkperm(options.perm, Dimension)
+    assert(terralib.types.istype(T), "Invalid option: not a valid element type. Expected a terra type.")
+    assert(Dimension%1==0, "Invalid option: not a valid dimension. Expected an integer.")
+    assert(type(options.copyable)=="boolean",
+        "Invalid option. Expected copyable to be a boolean."
+    )
     
-    --generate static array struct
-    local S = alloc.SmartBlock(T)
+    --smart block
+    local S = alloc.SmartBlock(T, options)
+    S:complete()
 
+    --generate dynamic array struct
     local struct Array{
         data : S
         size : size_t[Dimension]
@@ -51,13 +58,20 @@ local DArrayRawType = function(typename, T, Dimension, options)
     local traits = {}
     traits.eltype = T
     traits.ndims = Dimension
-    traits.perm = Perm
+    traits.perm = options.perm
+    traits.copyable = true
 
     --__typename needs to be called before base.AbstractBase due to some caching 
     --issue with the typename.
     function Array.metamethods.__typename(self)
         return typename(traits)
     end
+
+    --autogenerate RAII methods before we add base-functionality
+    terralib.ext.addmissing.__init(Array)
+    terralib.ext.addmissing.__dtor(Array)
+    terralib.ext.addmissing.__move(Array)
+    if traits.copyable then terralib.ext.addmissing.__copy(Array) end
 
     --add base functionality - traits, templates table, etc
     base.AbstractBase(Array)
@@ -124,7 +138,6 @@ local DArrayStackBase = function(Array)
     end
 
     --create a new dynamic array
-    --ToDo: fix terralib typechecker to perform raii initializers correctly
     local new = terra(alloc: Allocator, size : tup.ntuple(size_t, N))
         var __size = [ &size_t[N] ](&size)  --we need the size as an array
         var cumsize = getcumsize(@__size)   --compute cumulative sizes
@@ -168,24 +181,24 @@ local DArrayStackBase = function(Array)
         Array.methods.resize = resize
     end
 
-    local S = alloc.SmartBlock(T)
-
     Array.methods.like = terra(self: &Array)
         var A = self.data.alloc
         var newself: Array
-        var length = self.cumsize[N - 1]
-        A:__allocators_best_friend(&newself.data, sizeof(T), length)
+        A:__allocators_best_friend(&newself.data, sizeof(T), self:length())
         newself.size = self.size
         newself.cumsize = self.cumsize
         return newself
     end
 
+    local S = alloc.SmartBlock(T, {copyable=Array.traits.copyable})
+    S:complete()
+    
     Array.staticmethods.frombuffer = (
         terra(size : tup.ntuple(size_t, N), data : &T)
             var __size = [ &size_t[N] ](&size)  --we need the size as an array
             var cumsize = getcumsize(@__size)   --compute cumulative sizes
             var length = cumsize[N-1]           --length is last entry in 'cumsum'
-            return Array{S.frombuffer(length, data), @__size, cumsize}
+            return Array{__move__(S.frombuffer(length, data)), @__size, cumsize}
         end
     )
 
@@ -269,11 +282,22 @@ local DArrayVectorBase = function(Array)
         end
     end
 
-    --check if vector concept is satisfied
-    local CVector = concepts.Vector(T)
-    assert(CVector(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CVector))
-end
+    terraform Array:copyto(dest : &Array)
+        for i=0, self:length() do
+            dest(i) = self(i)
+        end
+    end
 
+    terra Array:clone()
+        var newarray = self:like()
+        self:copyto(&newarray)
+        return newarray
+    end
+
+    --check if vector concept is satisfied
+    local CTensor = concepts.Tensor(T, N)
+    assert(CTensor(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CTensor))
+end
 
 local DArrayMatrixBase = function(DMatrix)
     
@@ -333,11 +357,11 @@ local DArrayIteratorBase = function(Array)
 
     --standard iterator is added in VectorBase
     vec.IteratorBase(Array) --add fall-back routines
- 
+
 end
 
-local DynamicArray = function(T, Dimension, options)
-    
+local dynamicarray_type_generator = parametrized.type(function(T, Dimension, options)
+
     --print typename
     local function typename(traits)
         local sizes = "{"
@@ -356,35 +380,53 @@ local DynamicArray = function(T, Dimension, options)
     DArrayStackBase(Array)
     DArrayVectorBase(Array)
     DArrayIteratorBase(Array)
-
+    
     return Array
+end)
+
+local DynamicArray = function(T, Dimension, options)
+
+    local options = options or {}
+    options.perm = options.perm or array.defaultperm(Dimension) --permutation denoting order of leading dimensions. default is: {D, D-1, ... , 1}
+    options.copyable = options.copyable or false
+
+    return dynamicarray_type_generator(T, Dimension, options)
 end
 
---DynamicVector is reimplemented separately from 'Array' because otherwise
---DynamicVector.metamethods.__typename is memoized incorrectly
-local DynamicVector = parametrized.type(function(T)
-    
+local dynamicvector_type_generator = parametrized.type(function(T, options)
+
+    --print typename
     local function typename(traits)
         return ("DynamicVector(%s)"):format(tostring(T))
     end
 
     --generate the raw type
-    local DVector = DArrayRawType(typename, T, 1)
-
+    local Vector = DArrayRawType(typename, T, 1, options)
+    
     --implement interfaces
-    DArrayStackBase(DVector)
-    DArrayVectorBase(DVector)
-    DArrayIteratorBase(DVector)
-
-    return DVector
+    DArrayStackBase(Vector)
+    DArrayVectorBase(Vector)
+    DArrayIteratorBase(Vector)
+    
+    return Vector
 end)
 
-local TransposedDMatrix = function(ParentMatrix)
+local DynamicVector = function(T, options)
+
+    local options = options or {}
+    options.perm = options.perm or array.defaultperm(1) --permutation denoting order of leading dimensions.
+    options.copyable = options.copyable or false
+
+    return dynamicvector_type_generator(T, options)
+end
+
+local TransposedDMatrix = terralib.memoize(function(ParentMatrix)
 
     assert(ParentMatrix.traits.ndims == 2)
 
     local T = ParentMatrix.traits.eltype
-    local Perm = terralib.newlist{ParentMatrix.traits.perm[2], ParentMatrix.traits.perm[1]}
+    local Perm = {ParentMatrix.traits.perm[2], ParentMatrix.traits.perm[1]}
+    local copyable = ParentMatrix.traits.copyable
 
     local typename
     if concepts.Complex(T) then
@@ -397,7 +439,7 @@ local TransposedDMatrix = function(ParentMatrix)
         end
     end
 
-    local DMatrix = DArrayRawType(typename, T, 2, {perm=Perm})
+    local DMatrix = DArrayRawType(typename, T, 2, {perm=Perm, copyable=copyable})
 
     --trait to signal that this is a transposed view
     DMatrix.traits.istransposed = true
@@ -429,11 +471,10 @@ local TransposedDMatrix = function(ParentMatrix)
     DArrayMatrixBase(DMatrix)
 
     return DMatrix
-end
+end)
 
-
-local DynamicMatrix = parametrized.type(function(T, options)
-
+local dynamicmatrix_type_generator = parametrized.type(function(T, options)
+    
     local function typename(traits)
         return ("DynamicMatrix(%s)"):format(tostring(T))
     end
@@ -441,7 +482,7 @@ local DynamicMatrix = parametrized.type(function(T, options)
     local DMatrix = DArrayRawType(typename, T, 2, options)
 
     --check that a matrix-type was generated
-    assert(DMatrix.traits.ndims == 2, "ArgumentError: second argument should be a table with matrix dimensions.")
+    assert(DMatrix.traits.ndims == 2, "ArgumentError: expected array dimension equal to two.")
 
     --implement interfaces
     DArrayStackBase(DMatrix)
@@ -465,6 +506,15 @@ local DynamicMatrix = parametrized.type(function(T, options)
 
     return DMatrix
 end)
+
+local DynamicMatrix = function(T, options)
+
+    local options = options or {}
+    options.perm = options.perm or array.defaultperm(2) --permutation denoting order of leading dimensions.
+    options.copyable = options.copyable or false
+
+    return dynamicmatrix_type_generator(T, options)
+end
 
 return {
     DynamicArray = DynamicArray,

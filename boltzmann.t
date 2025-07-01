@@ -104,7 +104,7 @@ local deepcopy = macro(function(A, x)
         var p = V.new(A, x:length())
         p:copy(&x)
     in
-        __move__(p)
+        p
     end
 end)
 
@@ -113,23 +113,18 @@ terraform MonomialBasis:quadraturerule(A, deg: I) where {I: Integer}
     var px, wx = gauss.hermite(A, deg / 2 + 1,
             {origin = 0.0, scaling = tmath.sqrt(2.)})
     wx:scal(1 / tmath.sqrt(2 * tmath.pi))
-    escape
-        local xarg = {}
-        local warg = {}
-        for i = 1, VDIM - 1 do
-            xarg[i] = `deepcopy(A, px)
-            warg[i] = `deepcopy(A, wx)
-        end
-        xarg[VDIM] = `__move__(px)
-        warg[VDIM] = `__move__(wx)
 
+    var x0, x1, x2 = px:clone(), px:clone(), px:clone()
+    var w0, w1, w2 = wx:clone(), wx:clone(), wx:clone()
+    escape
         local xtpl = {}
         for i = 1, VDIM do
             xtpl[i] = symbol(double)
         end
+
         emit quote
             var xt = (
-                range.product([xarg])
+                range.product(__move__(x0), __move__(x1), __move__(x2))
                 >> range.transform([
                     terra([xtpl], bg: &background)
                         escape
@@ -145,7 +140,7 @@ terraform MonomialBasis:quadraturerule(A, deg: I) where {I: Integer}
                     end
                 ], {bg = &self.bg})
             )
-            var wt = range.product([warg])
+            var wt = range.product(__move__(w0), __move__(w1), __move__(w2))
                 >> range.reduce(range.op.mul)
                 >> range.transform(
                     [
@@ -343,7 +338,6 @@ local terraform local_maxwellian(basis : &B, coeff: &V, quad: &Q)
     var m1: V.traits.eltype = 0
     var m2 = [sarray.StaticVector(V.traits.eltype, VDIM)].zeros()
     var m3: V.traits.eltype = 0
-
     var it = quad:getiterator()
     var xref, wref = it:getvalue()
     for bc in range.zip(basis, coeff) do
@@ -371,7 +365,6 @@ local terraform local_maxwellian(basis : &B, coeff: &V, quad: &Q)
                     ])        
         m3 = m3 + l2inner(b, vsqr, quad) * c
     end
-
     var rho = m1
     var u = [m2.type].zeros()
     for j = 0, VDIM do
@@ -485,13 +478,12 @@ local HalfSpaceQuadrature = parametrized.type(function(T)
 
     local terraform castvector(dest: &V1, src: &V2)
         where {V1: Vector(concepts.Any), V2: Vector(concepts.Any)}
-        (
-            @src >> range.transform([
+        var rn = @src >> range.transform([
                 terra(x: V2.traits.eltype)
                     return [V1.traits.eltype](x)
                 end
             ])
-        ):collect(dest)
+        rn:collect(dest)
     end
 
     local terraform normalize(v: &V) where {V: Vector(concepts.Real)}
@@ -694,7 +686,7 @@ local terraform maxwellian_inflow(
             end
         ],
         {normal = &loc_normal[0]})
-    for i, b in range.enumerate(testb.velocity) do
+    for i, b in range.enumerate(&testb.velocity) do
         -- Because we integrate over dot(v, -n) > 0 the weight dot(v, n)
         -- has the wrong sign, so we need to correct it after quadrature.
         halfmom[i] = -l2inner(b, vn, &qhalf)
@@ -1015,7 +1007,8 @@ local terraform nonlinear_maxwellian_inflow(
     -- by using two more points.
     var maxtrialdegree = trialb.velocity:maxpartialdegree()
     var xq, wq = trialb.velocity:quadraturerule(A, maxtrialdegree + 2)
-    var qmaxwellian = [quote var q = range.zip(xq, wq) in &q end]
+    
+    var qmaxwellian = range.zip(__move__(xq), __move__(wq))
     var halfmomq = [darray.DynamicMatrix(C.traits.eltype)].zeros(
                                                         A,
                                                         {nq,
@@ -1028,25 +1021,20 @@ local terraform nonlinear_maxwellian_inflow(
                     i: int64,
                     A: A.type,
                     transform: transform.type,
-                    qvlhs: qvlhs.type,
+                    qvlhs: &qvlhs.type,
                     testb: testb.type,
                     trialb: trialb.type,
-                    qmaxwellian: qmaxwellian.type,
+                    quad: &qmaxwellian.type,
                     normal: normal.type,
-                    halfmomq: halfmomq.type
+                    halfmomq: &halfmomq.type
                 )
-                    var lhs = (
-                        [
-                            darray.DynamicVector(C.traits.eltype)
-                        ].new(A, qvlhs:cols())
-                    )
+                    var lhs = [darray.DynamicVector(C.traits.eltype)].new(A, qvlhs:cols())
                     for j = 0, qvlhs:cols() do
                         lhs(j) = qvlhs(i, j)
                     end
                     var rho, u, theta = local_maxwellian(
-                                            &trialb.velocity, &lhs, qmaxwellian
+                                            &trialb.velocity, &lhs, quad
                                         )
-
                     var un: rho.type = 0
                     escape
                         for j = 1, VDIM do
@@ -1058,7 +1046,6 @@ local terraform nonlinear_maxwellian_inflow(
                         tmath.exp(-mach * mach)
                         - tmath.sqrt(tmath.pi) * mach * (1 - tmath.erf(mach))
                     )
-
                     var outmom = [
                         darray.DynamicVector(C.traits.eltype)
                     ].new(A, trialb:nvelocitydof())
@@ -1068,7 +1055,6 @@ local terraform nonlinear_maxwellian_inflow(
                             emit quote innormal[j - 1] = -normal(i, j - 1) end
                         end
                     end
-
                     var rhob: C.traits.eltype = trialb.velocity.bg.rho
                     var ub: sarray.StaticVector(C.traits.eltype, VDIM)
                     escape
@@ -1087,9 +1073,7 @@ local terraform nonlinear_maxwellian_inflow(
                         &outmom(0)
                     )
                     var outflow = -outmom:dot(&lhs)
-
                     transform(&rho, &u, &theta, inflow, outflow)
-
                     maxwellian_inflow(
                         A,
                         testb,
@@ -1104,15 +1088,14 @@ local terraform nonlinear_maxwellian_inflow(
             {
                 A = A,
                 transform = transform,
-                qvlhs = qvlhs, 
+                qvlhs = &qvlhs, 
                 testb = testb,
                 trialb = trialb,
-                qmaxwellian = qmaxwellian,
+                quad = &qmaxwellian,
                 normal = normal,
-                halfmomq = halfmomq
+                halfmomq = &halfmomq
             }
         )
-
     thread.parfor(A, qrange, half)
     var halfmom = [darray.DynamicMatrix(C.traits.eltype)].zeros(
                                                         A,
@@ -1130,10 +1113,12 @@ local PrepareLinearInput = terralib.memoize(function(T, I)
     local tMat = darray.DynamicMatrix(T)
     local iMat = darray.DynamicMatrix(I)
     local terra prepare_linear_input(
-        -- Scaling of the background Maxwellian
-        ensrho: T,
-        ensU: &T,
-        enstheta: T,
+        -- Scaling of the test functions
+        testU: &T,
+        testtheta: T,
+        -- Scaling of the trial functions
+        trialU: &T,
+        trialtheta: T,
         -- Number of test functions in velocity
         ntestv: int32,
         -- Number of trial function in velocity
@@ -1151,12 +1136,13 @@ local PrepareLinearInput = terralib.memoize(function(T, I)
         -- Pointer to matrix of size ntestv x ntrialv
         res: &T
     )
-        var ensbg = background.new(ensrho, ensU, enstheta)
+        var testbg = background.new(1, testU, testtheta)
+        var trialbg = background.new(1, trialU, trialtheta)
         var btest = MonomialBasis.new(
-            __move__(iMat.frombuffer({ntestv, VDIM}, test_powers)), ensbg
+            __move__(iMat.frombuffer({ntestv, VDIM}, test_powers)), testbg
         )
         var btrial = MonomialBasis.new(
-            __move__(iMat.frombuffer({ntrialv, VDIM}, trial_powers)), ensbg
+            __move__(iMat.frombuffer({ntrialv, VDIM}, trial_powers)), trialbg
         )
         var bndbg = background.new(bndrho, bndU, bndtheta)
         var resmat = tMat.frombuffer({ntestv, ntrialv}, res)

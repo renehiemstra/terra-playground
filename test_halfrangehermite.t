@@ -56,7 +56,7 @@ for N = 1, 15 do
         terracode
             var alloc: alloc.DefaultAllocator()
             var x, w = quad.halfrangehermite(&alloc, N)
-            var q = range.zip(x, w)
+            var q = range.zip(&x, &w)
             for k = 0, 2 * N do
                 err[k] = tmath.abs(compute_moment(q, k) - ref[k]) / ref[k]
             end

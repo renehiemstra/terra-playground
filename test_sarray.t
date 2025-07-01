@@ -105,6 +105,12 @@ terraform checkallcartesian(A : &V, rn : R) where {V : Range, R : Range}
     return true
 end
 
+--check if default options are handled correctly to produce unique types
+assert(sarray.StaticArray(int, {2, 3, 4}) == 
+                sarray.StaticArray(int, {2, 3, 4}, {perm={3,2,1}}))
+assert(sarray.StaticArray(int, {2, 3, 4}, {perm={3,2,1}}) == 
+                sarray.StaticArray(int, {2, 3, 4}, {perm={3,2,1}, cumulative_size={4,12,24}}))
+
 --testing 3D array of one fixed size {2,3,4} and different permutations
 for _,Perm in ipairs{ {3,2,1}, {1,2,3} } do
     for _,T in ipairs{int, double} do
@@ -124,7 +130,6 @@ for _,Perm in ipairs{ {3,2,1}, {1,2,3} } do
                     B:set(unpacktuple(indices), count)
                 end
             end
-
             testset "size, length, set, get, perm" do
                 test A:size(0) == 2 and A:size(1) == 3 and A:size(2) == 4
                 test A:perm(0) == [ Perm[1] ] and A:perm(1) == [ Perm[2] ] and A:perm(2) == [ Perm[3] ]
@@ -355,6 +360,10 @@ for _,T in ipairs{float, double, float128, int, cint, cfloat, cdouble, cfloat128
 
             local SMatrix = sarray.StaticMatrix(T, {M, N})
 
+            --check if default options are handled correctly to produce unique types
+            assert(SMatrix == sarray.StaticMatrix(T, {M,N}, {perm={2,1}}))
+            assert(SMatrix == sarray.StaticMatrix(T, {M,N}, {perm={2,1}, cumulative_size={N,M*N}}))
+
             testset "new, size, get, set" do
                 terracode
                     var A = SMatrix.new()
@@ -386,7 +395,6 @@ for _,T in ipairs{float, double, float128, int, cint, cfloat, cdouble, cfloat128
     end --N
 end --T
 
-
 for _,T in ipairs{int, float, double, float128} do
 
     local SMatrix2x2 = sarray.StaticMatrix(T, {2, 2})
@@ -398,7 +406,7 @@ for _,T in ipairs{int, float, double, float128} do
 
     local Concept = {
         Stack = concepts.Stack(T),
-        Vector = concepts.Vector(T),
+        Tensor = concepts.Tensor(T),
         Matrix = concepts.Matrix(T),
         Range = concepts.Range
     }
@@ -414,11 +422,11 @@ for _,T in ipairs{int, float, double, float128} do
         end
 
         --test basic concepts
-        test [ Concept.Vector(SMatrix2x3)]
+        test [ Concept.Tensor(SMatrix2x3)]
         test [ Concept.Range(SMatrix2x3) ]
         --check of transpose type isa Matrix, Vector and Range
         test [ Concept.Matrix(B.type.type)]
-        test [ Concept.Vector(B.type.type)]
+        test [ Concept.Tensor(B.type.type)]
         test [ Concept.Range(B.type.type) ]
 
         testset "transpose" do
@@ -514,7 +522,6 @@ for _,T in ipairs{int, float, double, float128} do
 
 end --T
 
-
 for _,T in ipairs{cint, cfloat, cdouble, cfloat128} do
 
     local SMatrix2x2 = sarray.StaticMatrix(T, {2, 2})
@@ -526,7 +533,7 @@ for _,T in ipairs{cint, cfloat, cdouble, cfloat128} do
 
     local Concept = {
         Stack = concepts.Stack(T),
-        Vector = concepts.Vector(T),
+        Tensor = concepts.Tensor(T),
         Matrix = concepts.Matrix(T),
         Range = concepts.Range
     }
@@ -542,11 +549,11 @@ for _,T in ipairs{cint, cfloat, cdouble, cfloat128} do
         end
 
         --test basic concepts
-        test [ Concept.Vector(A.type)]
+        test [ Concept.Tensor(A.type)]
         test [ Concept.Range(A.type) ]
         --check of transpose type isa Matrix, Vector and Range
         test [ Concept.Matrix(B.type.type)]
-        test [ Concept.Vector(B.type.type)]
+        test [ Concept.Tensor(B.type.type)]
         test [ Concept.Range(B.type.type) ]
 
         testset "transpose" do

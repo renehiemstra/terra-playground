@@ -119,7 +119,7 @@ local terra hermite_xinit_sin(r : double, nu : double, a : double)
     return tmath.sqrt(lambda)
 end
 
-local unitrange_i = range.Unitrange(int, "infinite")
+local unitrange_i = range.Unitrange(int, {sentinal = "infinite"})
 local steprange_i = range.Steprange(int)
 
 local terra hermite_initialguess(alloc : Allocator, n : size_t)
@@ -386,7 +386,7 @@ local terra legpts_nodes(alloc : Allocator, n : size_t, a : &dvec)
         for i = 0, m do
             var u = nodes(i)
             var u2 = u * u
-            var ai = a:get(i)
+            var ai = a(i)
             var ai2 = ai * ai
             var ai3 = ai2 * ai
             var ai5 = ai2 * ai3
