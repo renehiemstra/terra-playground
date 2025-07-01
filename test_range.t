@@ -45,7 +45,7 @@ for _, T in ipairs{int, double, float256} do
                 y:collect(&x)
             end
             test x:isempty() == false
-            test x:size() == 3
+            test x:length() == 3
             test x:get(0) == 1
             test x:get(1) == 2
             test x:get(2) == 3
@@ -57,7 +57,7 @@ for _, T in ipairs{int, double, float256} do
                 r:pushall(&s)
                 s:pushall(&t)
             end
-            test s:size() == 3 and t:size() == 3
+            test s:length() == 3 and t:length() == 3
             test s:get(0)==1 and t:get(0)==1
             test s:get(1)==2 and t:get(1)==2
             test s:get(2)==3 and t:get(2)==3
@@ -80,7 +80,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = unitrange.new(1, 4)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==2
             test s:get(2)==3
@@ -95,7 +95,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, 7, 2)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==3
             test s:get(2)==5
@@ -110,7 +110,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, 6, 2)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==3
             test s:get(2)==5
@@ -125,7 +125,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, -2, -1)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==0
             test s:get(2)==-1
@@ -140,7 +140,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, -5, -2)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==-1
             test s:get(2)==-3
@@ -155,7 +155,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, -4, -2)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==-1
             test s:get(2)==-3
@@ -182,7 +182,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = unitrange.new(1, 3, rn.include_last)
                 r:pushall(&s)
             end
-            test s:size() == 3
+            test s:length() == 3
             test s:get(0)==1
             test s:get(1)==2
             test s:get(2)==3
@@ -197,7 +197,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, 5, 2, rn.include_last)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==3
             test s:get(2)==5
@@ -212,7 +212,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, 6, 2, rn.include_last)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==3
             test s:get(2)==5
@@ -227,7 +227,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, -1, -1, rn.include_last)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==0
             test s:get(2)==-1
@@ -242,7 +242,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, -3, -2, rn.include_last)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==-1
             test s:get(2)==-3
@@ -257,7 +257,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, -4, -2, rn.include_last)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==-1
             test s:get(2)==-3
@@ -284,7 +284,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = unitrange.new(1) >> rn.take(3)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==2
             test s:get(2)==3
@@ -295,7 +295,7 @@ for _, T in ipairs{int, double, float256} do
                 var r = steprange.new(1, 2) >> rn.take(3)
                 r:pushall(&s)
             end
-            test s:size()==3
+            test s:length()==3
             test s:get(0)==1
             test s:get(1)==3
             test s:get(2)==5
@@ -323,7 +323,7 @@ testenv "range adapters" do
             var range = unitrange.new(1, 4) >> g
             range:pushall(&s)
         end
-        test s:size()==3
+        test s:length()==3
         test s:get(0)==2
         test s:get(1)==4
         test s:get(2)==6
@@ -335,7 +335,7 @@ testenv "range adapters" do
             var range = unitrange{1, 7} >> rn.filter([terra(i : int, x : int) return i % 2 == x end], {x = x})
             range:pushall(&s)
         end
-        test s:size()==3
+        test s:length()==3
         test s:get(0)==1
         test s:get(1)==3
         test s:get(2)==5
@@ -346,7 +346,7 @@ testenv "range adapters" do
             var range = unitrange{1, 10} >> rn.take(3)
             range:pushall(&s)
         end
-        test s:size()==3
+        test s:length()==3
         test s:get(0)==1
         test s:get(1)==2
         test s:get(2)==3
@@ -357,7 +357,7 @@ testenv "range adapters" do
             var range = unitrange{1, 10} >> rn.drop(6)
             range:pushall(&s)
         end
-        test s:size()==3
+        test s:length()==3
         test s:get(0)==7
         test s:get(1)==8
         test s:get(2)==9
@@ -368,7 +368,7 @@ testenv "range adapters" do
             var range = unitrange{1, 10} >> rn.take_while([terra(i : int) return i < 4 end])
             range:pushall(&s)
         end
-        test s:size()==3
+        test s:length()==3
         test s:get(0)==1
         test s:get(1)==2
         test s:get(2)==3
@@ -380,7 +380,7 @@ testenv "range adapters" do
             var range = unitrange{1, 10} >> rn.drop_while([terra(i : int) return i < 7 end])
             range:pushall(&s)
         end
-        test s:size()==3
+        test s:length()==3
         test s:get(0)==7
         test s:get(1)==8
         test s:get(2)==9
@@ -485,7 +485,7 @@ testenv "range composition" do
             var range = r >> g >> h
             range:pushall(&s)
         end
-        test s:size()==3
+        test s:length()==3
         test s:get(0)==0
         test s:get(1)==6
         test s:get(2)==12
@@ -501,7 +501,7 @@ testenv "range composition" do
                 s:push(v)
             end
         end
-        test s:size()==3
+        test s:length()==3
         test s:get(0)==0
         test s:get(1)==6
         test s:get(2)==12
@@ -533,7 +533,7 @@ testenv "range composition - terraform" do
             var range = r >> g >> h
             range:pushall(&s)
         end
-        test s:size()==3
+        test s:length()==3
         test s:get(0)==0
         test s:get(1)==6
         test s:get(2)==12
@@ -555,7 +555,7 @@ testenv "range combiners" do
                 s:push(v)
             end
         end
-        test s:size()==3
+        test s:length()==3
         for i = 1, 3 do
             test s:get([i-1]) == i
         end
@@ -570,7 +570,7 @@ testenv "range combiners" do
                 s:push(v)
             end
         end
-        test s:size()==4
+        test s:length()==4
         for i = 1, 4 do
             test s:get([i-1]) == i
         end
@@ -585,7 +585,7 @@ testenv "range combiners" do
                 s:push(v)
             end
         end
-        test s:size()==6
+        test s:length()==6
         for i = 1, 6 do
             test s:get([i-1]) == i
         end
@@ -598,7 +598,7 @@ testenv "range combiners" do
                 s:push(v)
             end
         end
-        test j:size()==3 and s:size()==3
+        test j:length()==3 and s:length()==3
         test j:get(0)==0 and s:get(0)==1
         test j:get(1)==1 and s:get(1)==2
         test j:get(2)==2 and s:get(2)==3
@@ -611,7 +611,7 @@ testenv "range combiners" do
                 U:push(u._0)
             end
         end
-        test U:size()==3
+        test U:length()==3
         test U:get(0)==1
         test U:get(1)==2
         test U:get(2)==3
@@ -626,7 +626,7 @@ testenv "range combiners" do
                 V:push(t._1)
             end
         end
-        test U:size()==3 and V:size()==3
+        test U:length()==3 and V:length()==3
         test U:get(0)==1 and V:get(0)==2
         test U:get(1)==2 and V:get(1)==3
         test U:get(2)==3 and V:get(2)==4
@@ -639,7 +639,7 @@ testenv "range combiners" do
                 U:push(u._0)
             end
         end
-        test U:size()==3
+        test U:length()==3
         test U:get(0)==1
         test U:get(1)==2
         test U:get(2)==3
@@ -654,7 +654,7 @@ testenv "range combiners" do
                 V:push(t._1)
             end
         end
-        test U:size()==6 and V:size()==6
+        test U:length()==6 and V:length()==6
         test U:get(0)==1 and V:get(0)==2
         test U:get(1)==2 and V:get(1)==2
         test U:get(2)==3 and V:get(2)==2
@@ -674,7 +674,7 @@ testenv "range combiners" do
                 W:push(t._2)
             end
         end
-        test U:size()==12
+        test U:length()==12
         test U:get(0)==1 and V:get(0)==2 and W:get(0)==3
         test U:get(11)==3 and V:get(11)==3 and W:get(11)==4
     end
@@ -686,7 +686,7 @@ testenv "range combiners" do
                 W:push(w)
             end
         end
-        test W:size() == 3
+        test W:length() == 3
         test W:get(0) == 6
         test W:get(1) == 9
         test W:get(2) == 12
@@ -699,7 +699,7 @@ testenv "range combiners" do
                 W:push(w)
             end
         end
-        test W:size() == 6
+        test W:length() == 6
         test W:get(0) == 2
         test W:get(1) == 4
         test W:get(2) == 6
@@ -715,7 +715,7 @@ testenv "range combiners" do
                 W:push(w)
             end
         end
-        test W:size() == 12
+        test W:length() == 12
         test W:get(0) == 6
         test W:get(11) == 36
     end
@@ -731,7 +731,7 @@ testenv "range combiners" do
                 W:push(t._2)
             end
         end
-        test U:size()==12 and V:size()==12 and W:size()==12
+        test U:length()==12 and V:length()==12 and W:length()==12
         test W:get(0)==1 and V:get(0)==2 and U:get(0)==3
         test W:get(11)==3 and V:get(11)==3 and U:get(11)==4
     end

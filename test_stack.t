@@ -24,7 +24,7 @@ testenv "DynamicStack" do
     end
 
     testset "new" do
-        test s:size() == 0
+        test s:length() == 0
         test s:capacity() == 3
         test [stack.traits.eltype == T]
         test s.data:owns_resource()
@@ -35,7 +35,7 @@ testenv "DynamicStack" do
             s:push(1.0)
             s:push(2.0)
         end
-        test s:size() == 2
+        test s:length() == 2
         test s:capacity() == 3
     end
 
@@ -45,7 +45,7 @@ testenv "DynamicStack" do
             s:push(2.0)
             var x = s:pop()
         end
-        test s:size() == 1
+        test s:length() == 1
         test s:capacity() == 3
         test x == 2.0
     end
@@ -67,7 +67,7 @@ testenv "DynamicStack" do
         test s(0) == 3.0
         test s(1) == 4.0
         test s:get(2) == 5.0
-        test s:size() == 3
+        test s:length() == 3
         test s:capacity() == 3
     end
 
@@ -84,7 +84,7 @@ testenv "DynamicStack" do
         test s:get(2) == 2.0
         test s:get(3) == -2.0
         test s:get(4) == 3.0
-        test s:size() == 5
+        test s:length() == 5
     end
 
     testset "reallocate" do
@@ -95,7 +95,7 @@ testenv "DynamicStack" do
             s:push(4.0) --triggering reallocate (new capacity is twice old capacity)
             s:push(5.0)
         end
-        test s:size() == 5
+        test s:length() == 5
         test s:capacity() == 7
         test s(0) == 1
         test s(1) == 2
@@ -112,7 +112,7 @@ testenv "DynamicStack" do
         end
         test s.data:isempty()
         test x.data:owns_resource()
-        test x:size() == 2 and x:capacity() == 3
+        test x:length() == 2 and x:capacity() == 3
         test x(0) == 1.0 and x(1) == 2.0
     end
 

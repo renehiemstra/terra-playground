@@ -44,6 +44,8 @@ local CSRMatrix = parametrized.type(function(T, I)
 
     base.AbstractBase(csr)
     csr.traits.eltype = T
+    csr.traits.ndims = 2
+    csr.traits.perm = terralib.newlist{2, 1}
 
     terra csr:rows()
         return self.rows
@@ -53,7 +55,7 @@ local CSRMatrix = parametrized.type(function(T, I)
         return self.cols
     end
 
-    terra csr:get(i: I, j: I)
+    terraform csr:get(i: J, j: J) where {J: concepts.Integer}
         err.assert(i < self.rows and j < self.cols)
         for idx = self.rowptr(i), self.rowptr(i + 1) do
             if self.col(idx) == j then
@@ -63,7 +65,14 @@ local CSRMatrix = parametrized.type(function(T, I)
         return [T](0)
     end
 
-    terra csr:set(i: I, j: I, x: T)
+    terraform csr:get(idx: J) where {J: concepts.Integer}
+        var m = self:cols()
+        var i = idx / m
+        var j = idx % m
+        return csr:get(i, j)
+    end
+
+    terraform csr:set(i: J, j: J, x: T) where {J: concepts.Integer}
         err.assert(i < self.rows and j < self.cols)
         var idx = self.rowptr(i)
         -- Initialize the column index with something outside of the index
@@ -92,11 +101,21 @@ local CSRMatrix = parametrized.type(function(T, I)
         end
     end
 
+    terraform csr:set(idx: J, x: T) where {J: concepts.Integer}
+        var m = self:cols()
+        var i = idx / m
+        var j = idx % m
+        return csr:set(i, j, x)
+    end
+
+    terra csr:length()
+        return self:rows() * self:cols()
+    end
+
     matrix.MatrixBase(csr)
-    assert(Matrix(csr))
 
     terra csr:nnz()
-        return self.data:size()
+        return self.data:length()
     end
 
     terraform csr:apply(trans: bool, alpha: T, x: &V1, beta: T, y: &V2)

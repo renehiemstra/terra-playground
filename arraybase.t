@@ -175,6 +175,8 @@ local ArrayBase = function(Array)
             else
                 return `boundscheck_cartesian(&self, [indices])
             end
+        else
+            return quote end
         end
     end)
 

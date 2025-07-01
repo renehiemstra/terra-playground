@@ -28,7 +28,7 @@ local Allocator = alloc.Allocator
 local size_t = uint64
 
 --global flag to perform boundscheck
-__boundscheck__ = true
+__boundscheck__ = false
 
 
 --'DArrayRawType' is used by all dynamic array implementations. So we don't want
@@ -295,8 +295,8 @@ local DArrayVectorBase = function(Array)
     end
 
     --check if vector concept is satisfied
-    local CVector = concepts.Vector(T)
-    assert(CVector(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CVector))
+    local CTensor = concepts.Tensor(T, N)
+    assert(CTensor(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CTensor))
 end
 
 local DArrayMatrixBase = function(DMatrix)

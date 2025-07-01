@@ -74,6 +74,7 @@ local function Base(block, T, options)
     
     --auto-generate __init method
     terralib.ext.addmissing.__init(block)
+    block.methods.length = block.methods.size
 
     --exact clone of the block
     block.methods.clone = terra(self : &block)
