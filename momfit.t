@@ -32,14 +32,14 @@ local terraform clenshawcurtis(alloc, n: N, rec: &R, dom: &I)
         I: Interval(Real)
     }
     var x = [darray.DynamicVector(I.traits.eltype)].new(alloc, n)
-    (
-        [range.Unitrange(int)].new(0, n)
+
+    var rn = [range.Unitrange(int)].new(0, n)
             >> range.transform(
                 [terra(i: int, n: int): I.traits.eltype
                     return tmath.cos(tmath.pi * (2 * i + 1) / (2 * n))
                 end],
             {n = n})
-    ):collect(&x)
+    rn:collect(&x)
 
     var nmax = 20
     if n > 10 then
@@ -63,7 +63,7 @@ local terraform clenshawcurtis(alloc, n: N, rec: &R, dom: &I)
     w:scal([I.traits.eltype](2) / n)
 
     var xq = [darray.DynamicVector(I.traits.eltype)].new(alloc, n)
-    (x >> range.transform([
+    var rn_x = x >> range.transform([
             terra(
                 x: I.traits.eltype,
                 a: I.traits.eltype,
@@ -72,10 +72,10 @@ local terraform clenshawcurtis(alloc, n: N, rec: &R, dom: &I)
                 return (b + a) / 2 + (b - a) / 2 * x
             end],
             {a = dom.left, b = dom.right})
-    ):collect(&xq)
+    rn_x:collect(&xq)
 
     var wq = [darray.DynamicVector(I.traits.eltype)].new(alloc, n)
-    (w >> range.transform([
+    var rn_w = w >> range.transform([
             terra(
                 w: I.traits.eltype,
                 a: I.traits.eltype,
@@ -84,7 +84,7 @@ local terraform clenshawcurtis(alloc, n: N, rec: &R, dom: &I)
                 return (b - a) / 2 * w
             end],
             {a = dom.left, b = dom.right})
-    ):collect(&wq)
+    rn_w:collect(&wq)
 
     return xq, wq
 end
