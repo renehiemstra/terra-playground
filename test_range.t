@@ -392,7 +392,7 @@ testenv "range adapters" do
             r:pushall(&s)
             var x = s >> rn.transform([terra(i : int, x : int) return x * i end], {x = 2})
         end
-        test s:size() == 4
+        test s:length() == 4
         test s:get(0) == 2 and s:get(1) == 3 and s:get(2) == 4 and s:get(3) == 5
     end
 
@@ -403,7 +403,7 @@ testenv "range adapters" do
             var x = __move__(s) >> rn.transform([terra(i : int, x : int) return x * i end], {x = 2})
         end
         test s.data:isempty()
-        test s:size() == 0
+        test s:length() == 0
     end
 
 end
@@ -761,8 +761,8 @@ testenv "integration tests - resource management" do
             var xrange = getprodrule(__move__(s), __move__(t))
             xrange:pushall(&res)
         end
-        test res:size() == 9
-        test s:size() == 0 and t:size() == 0
+        test res:length() == 9
+        test s:length() == 0 and t:length() == 0
     end
 
 end
