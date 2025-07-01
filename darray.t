@@ -22,6 +22,8 @@ local serde = require("serde")
 local luafun = require("fun")
 local parametrized = require("parametrized")
 
+import "terraform"
+
 local Allocator = alloc.Allocator
 local size_t = uint64
 
@@ -182,8 +184,7 @@ local DArrayStackBase = function(Array)
     Array.methods.like = terra(self: &Array)
         var A = self.data.alloc
         var newself: Array
-        var length = self.cumsize[N - 1]
-        A:__allocators_best_friend(&newself.data, sizeof(T), length)
+        A:__allocators_best_friend(&newself.data, sizeof(T), self:length())
         newself.size = self.size
         newself.cumsize = self.cumsize
         return newself
@@ -281,6 +282,18 @@ local DArrayVectorBase = function(Array)
         end
     end
 
+    terraform Array:copyto(dest : &Array)
+        for i=0, self:length() do
+            dest(i) = self(i)
+        end
+    end
+
+    terra Array:clone()
+        var newarray = self:like()
+        self:copyto(&newarray)
+        return newarray
+    end
+
     --check if vector concept is satisfied
     local CVector = concepts.Vector(T)
     assert(CVector(Array), "ConceptError: " .. tostring(Array) .. " does not satisfy concept " .. tostring(CVector))
@@ -344,7 +357,7 @@ local DArrayIteratorBase = function(Array)
 
     --standard iterator is added in VectorBase
     vec.IteratorBase(Array) --add fall-back routines
- 
+
 end
 
 local dynamicarray_type_generator = parametrized.type(function(T, Dimension, options)
