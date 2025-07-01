@@ -57,7 +57,6 @@ end
 --method that collects all elements in the range in a container
 --that satsifies the 'Stacker(T)' interface
 local RangeBase = function(Range, iterator_t)
-
     --set base functionality for iterators
     IteratorBase(iterator_t)
 
@@ -93,11 +92,7 @@ local RangeBase = function(Range, iterator_t)
             local A = Adapter(passbyref and &self_type or self_type, adapter_type)
             assert(#A.entries == 2)
             --return the new range
-            return quote
-                var newrange = A{passfield(self), adapter}
-            in
-                newrange
-            end
+            return `A{passfield(self), adapter}
         end
     end)
 
@@ -791,21 +786,7 @@ local combiner_factory = function(Combiner)
         --construct the combirange type and instantiate 
         --terra obj
         local combirange = Combiner(range_types, options)
-        return quote
-            --var range = combirange{[ranges]}
-            var range : combirange
-            --HACK: needed for now because initializers don't work correctly
-            --with raii
-            escape
-                for i,e in ipairs(combirange:getentries()) do
-                    emit quote
-                        range.[e.field] = [ ranges[i] ]
-                    end
-                end
-            end
-        in
-            range
-        end
+        return `combirange{[ranges]}
     end)
     return combiner
 end
@@ -852,7 +833,7 @@ local Enumerator = function(Ranges)
     return enumerator
 end
 
-local JoinRange = function(Ranges)
+local JoinRange = terralib.memoize(function(Ranges)
 
     local joiner = newcombiner(Ranges, "joiner")
     --add methods, staticmethods and templates tablet and template fallback mechanism 
@@ -938,9 +919,9 @@ local JoinRange = function(Ranges)
     RangeBase(joiner, iterator, T)
     
     return joiner
-end
+end)
 
-local ZipRange = function(Ranges)
+local ZipRange = terralib.memoize(function(Ranges)
   
     local zipper = newcombiner(Ranges, "zip")
     --add methods, staticmethods and templates tablet and template fallback mechanism 
@@ -1016,9 +997,9 @@ local ZipRange = function(Ranges)
     RangeBase(zipper, iterator)
 
     return zipper
-end
+end)
 
-local ProductRange = function(Ranges, options)
+local ProductRange = terralib.memoize(function(Ranges, options)
 
     --perm is a sequence of numbers denoting the perm in which the
     --product iterator iterates.
@@ -1109,7 +1090,7 @@ local ProductRange = function(Ranges, options)
     RangeBase(product, iterator)
 
     return product
-end
+end)
 
 
 local FoldLeft = function(Range, Function)

@@ -18,7 +18,6 @@ local stack = require("stack")
 local DefaultAllocator =  alloc.DefaultAllocator()
 local float256 = nfloat.FixedFloat(256)
 
-
 for _, T in ipairs{int, double, float256} do
 
     local stack = stack.DynamicStack(T)
@@ -57,7 +56,6 @@ for _, T in ipairs{int, double, float256} do
                 var r = unitrange.new(1, 4)
                 r:pushall(&s)
                 s:pushall(&t)
-
             end
             test s:size() == 3 and t:size() == 3
             test s:get(0)==1 and t:get(0)==1
@@ -283,30 +281,24 @@ for _, T in ipairs{int, double, float256} do
 
         testset "unitrange" do
             terracode
-                var r = unitrange.new(1)
-                (r >> rn.take(3)):pushall(&s)
+                var r = unitrange.new(1) >> rn.take(3)
+                r:pushall(&s)
             end
             test s:size()==3
             test s:get(0)==1
             test s:get(1)==2
             test s:get(2)==3
-            test r(0)==1
-            test r(1)==2
-            test r(2)==3
         end
 
         testset "steprange - step=2, %0" do
             terracode
-                var r = steprange.new(1, 2)
-                (r >> rn.take(3)):pushall(&s)
+                var r = steprange.new(1, 2) >> rn.take(3)
+                r:pushall(&s)
             end
             test s:size()==3
             test s:get(0)==1
             test s:get(1)==3
             test s:get(2)==5
-            test r(0)==1
-            test r(1)==3
-            test r(2)==5
         end
 
     end
@@ -742,6 +734,35 @@ testenv "range combiners" do
         test U:size()==12 and V:size()==12 and W:size()==12
         test W:get(0)==1 and V:get(0)==2 and U:get(0)==3
         test W:get(11)==3 and V:get(11)==3 and U:get(11)==4
+    end
+
+end
+
+testenv "integration tests - resource management" do
+
+    terracode
+        var alloc : DefaultAllocator
+        var s = stack.new(&alloc, 3)
+        var t = stack.new(&alloc, 3)
+        var res = stack.new(&alloc, 9)
+        
+        var r = unitrange.new(1, 4)
+        r:pushall(&s)
+        r:pushall(&t)
+    end
+
+    local terra getprodrule(a : stack, b : stack)
+        var r = rn.product(__move__(a), __move__(b)) >> rn.transform([terra(a : int, b : int) return a * b end])
+        return r
+    end
+
+    testset "product composed with transform" do
+        terracode
+            var xrange = getprodrule(__move__(s), __move__(t))
+            xrange:pushall(&res)
+        end
+        test res:size() == 9
+        test s:size() == 0 and t:size() == 0
     end
 
 end
